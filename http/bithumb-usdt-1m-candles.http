@@ -1,0 +1,8 @@
+@baseUrl = https://api.bithumb.com
+@market = KRW-USDT
+@count = 1
+
+### 빗썸 테더(USDT) 1분 캔들 조회
+GET {{baseUrl}}/v1/candles/minutes/1?market={{market}}&count={{count}}
+Accept: application/json
+

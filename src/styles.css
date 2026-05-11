@@ -1,0 +1,397 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f4f6f8;
+  color: #1f2937;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.appShell {
+  min-height: 100vh;
+  padding: 24px;
+}
+
+.topBar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 16px;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 24px;
+  font-weight: 750;
+  letter-spacing: 0;
+}
+
+h2 {
+  font-size: 15px;
+  font-weight: 750;
+}
+
+.topBar p {
+  margin-top: 4px;
+  color: #667085;
+  font-size: 13px;
+}
+
+.summaryStrip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(104px, 1fr));
+  gap: 8px;
+}
+
+.metric {
+  background: #ffffff;
+  border: 1px solid #d9e0e8;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.metric span {
+  display: block;
+  color: #667085;
+  font-size: 12px;
+}
+
+.metric strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 16px;
+}
+
+.metric.good strong,
+.goodText {
+  color: #0f766e;
+}
+
+.metric.bad strong,
+.badText {
+  color: #b42318;
+}
+
+.workbench {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.controlPanel,
+.chartPanel,
+.resultsPanel {
+  background: #ffffff;
+  border: 1px solid #d9e0e8;
+  border-radius: 8px;
+}
+
+.controlPanel {
+  padding: 16px;
+}
+
+.chartPanel {
+  padding: 12px;
+}
+
+.fieldGroup,
+.fieldGrid {
+  margin-bottom: 14px;
+}
+
+.fieldGroup > label,
+.fieldGrid label {
+  display: grid;
+  gap: 6px;
+  color: #475467;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.fieldGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+input,
+select {
+  width: 100%;
+  height: 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #111827;
+  padding: 0 10px;
+}
+
+input:focus,
+select:focus {
+  border-color: #2563eb;
+  outline: 2px solid rgba(37, 99, 235, 0.14);
+}
+
+select:disabled {
+  background: #f1f5f9;
+  color: #98a2b3;
+}
+
+.segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 3px;
+  gap: 3px;
+}
+
+.segmented button {
+  height: 30px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #475467;
+}
+
+.segmented button.active {
+  background: #1f2937;
+  color: #ffffff;
+}
+
+.dataNote {
+  display: flex;
+  justify-content: space-between;
+  margin: -4px 0 14px;
+  color: #667085;
+  font-size: 12px;
+}
+
+.buttonRow {
+  display: flex;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.primaryButton,
+.ghostButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 38px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+}
+
+.primaryButton {
+  flex: 1;
+  background: #2563eb;
+  color: #ffffff;
+  font-weight: 750;
+}
+
+.primaryButton:disabled {
+  cursor: not-allowed;
+  background: #94a3b8;
+}
+
+.ghostButton {
+  width: 42px;
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #475467;
+}
+
+.errorText {
+  margin-bottom: 12px;
+  color: #b42318;
+  font-size: 13px;
+}
+
+.slotPreview {
+  margin-top: 10px;
+}
+
+.slotPreview h2 {
+  margin-bottom: 8px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+th,
+td {
+  border-bottom: 1px solid #edf1f5;
+  padding: 7px 4px;
+  text-align: right;
+}
+
+th:first-child,
+td:first-child {
+  text-align: left;
+}
+
+th {
+  color: #667085;
+  font-weight: 700;
+}
+
+.chartSurface {
+  width: 100%;
+  min-height: 460px;
+}
+
+.resultsPanel {
+  margin-top: 16px;
+  padding: 16px;
+}
+
+.resultsPanel h2 {
+  margin-bottom: 12px;
+}
+
+.emptyResult {
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  color: #667085;
+  padding: 20px;
+  text-align: center;
+}
+
+.resultGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.slotResult {
+  border: 1px solid #d9e0e8;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.slotHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.slotHeader strong {
+  font-size: 15px;
+}
+
+.slotHeader span {
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.holding {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.empty {
+  background: #ecfdf3;
+  color: #027a48;
+}
+
+dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+dt {
+  color: #667085;
+  font-size: 11px;
+}
+
+dd {
+  margin: 2px 0 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.tradeList {
+  display: grid;
+  gap: 4px;
+  max-height: 150px;
+  overflow: auto;
+  padding-top: 8px;
+  border-top: 1px solid #edf1f5;
+}
+
+.tradeRow {
+  display: grid;
+  grid-template-columns: 40px 72px 1fr 1fr;
+  gap: 6px;
+  color: #475467;
+  font-size: 11px;
+}
+
+.tradeRow span:nth-child(3),
+.tradeRow span:nth-child(4) {
+  text-align: right;
+}
+
+.muted {
+  color: #98a2b3;
+  font-size: 12px;
+}
+
+@media (max-width: 980px) {
+  .topBar,
+  .workbench {
+    display: block;
+  }
+
+  .summaryStrip {
+    margin-top: 12px;
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .controlPanel {
+    margin-bottom: 16px;
+  }
+}
+
+@media (max-width: 620px) {
+  .appShell {
+    padding: 14px;
+  }
+
+  .fieldGrid,
+  .summaryStrip {
+    grid-template-columns: 1fr;
+  }
+
+  .chartPanel {
+    padding: 8px;
+  }
+}
