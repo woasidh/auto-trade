@@ -1,6 +1,7 @@
 import { Play, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import PriceChart from "./components/PriceChart";
+import { getPriceBand } from "./shared/candles";
 import { createSlots, simulateSevenSplit } from "./shared/simulator";
 import type { Candle, DatasetDate, DatasetResponse, SimulationResult, SimulationSettings } from "./shared/types";
 
@@ -73,11 +74,11 @@ export default function App() {
         setCandles(data.candles);
         setResult(null);
 
-        if (data.candles.length > 0) {
+        const priceBand = getPriceBand(data.candles);
+        if (priceBand) {
           setSettings((current) => ({
             ...current,
-            upperPrice: max(data.candles.map((candle) => candle.high)),
-            lowerPrice: min(data.candles.map((candle) => candle.low))
+            ...priceBand
           }));
         }
       })
@@ -119,14 +120,14 @@ export default function App() {
   }
 
   function resetBand() {
-    if (candles.length === 0) {
+    const priceBand = getPriceBand(candles);
+    if (!priceBand) {
       return;
     }
 
     setSettings((current) => ({
       ...current,
-      upperPrice: max(candles.map((candle) => candle.high)),
-      lowerPrice: min(candles.map((candle) => candle.low))
+      ...priceBand
     }));
     setResult(null);
   }
@@ -332,14 +333,6 @@ function price(value: number) {
 
 function percent(value: number) {
   return `${(value * 100).toFixed(2)}%`;
-}
-
-function max(values: number[]) {
-  return Math.max(...values);
-}
-
-function min(values: number[]) {
-  return Math.min(...values);
 }
 
 function clampInteger(value: number, minValue: number, maxValue: number) {

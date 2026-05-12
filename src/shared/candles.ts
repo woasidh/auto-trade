@@ -57,6 +57,29 @@ export function fillMissingCandles(candles: Candle[], fromDate: string, toDate: 
   return filled;
 }
 
+export function getPriceBand(candles: Candle[]): { upperPrice: number; lowerPrice: number } | null {
+  if (candles.length === 0) {
+    return null;
+  }
+
+  let upperPrice = candles[0].high;
+  let lowerPrice = candles[0].low;
+
+  for (let index = 1; index < candles.length; index += 1) {
+    const candle = candles[index];
+
+    if (candle.high > upperPrice) {
+      upperPrice = candle.high;
+    }
+
+    if (candle.low < lowerPrice) {
+      lowerPrice = candle.low;
+    }
+  }
+
+  return { upperPrice, lowerPrice };
+}
+
 export function countMissingMinutes(raw: RawBithumbCandle[], date: string): number {
   const uniqueTimes = new Set(
     raw
