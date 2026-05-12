@@ -16,16 +16,20 @@ interface PriceChartProps {
   result?: SimulationResult | null;
 }
 
-const markerColors = [
-  "#2563eb",
-  "#059669",
-  "#d97706",
-  "#7c3aed",
-  "#dc2626",
-  "#0891b2",
-  "#be123c",
-  "#4d7c0f"
-];
+const tradeMarkerStyles = {
+  BUY: {
+    color: "#047857",
+    position: "belowBar",
+    shape: "arrowUp",
+    label: "BUY"
+  },
+  SELL: {
+    color: "#dc2626",
+    position: "aboveBar",
+    shape: "arrowDown",
+    label: "SELL"
+  }
+} as const;
 
 export default function PriceChart({ candles, result }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -56,6 +60,8 @@ export default function PriceChart({ candles, result }: PriceChartProps) {
       },
       timeScale: {
         borderColor: "#d6dce5",
+        fixLeftEdge: true,
+        fixRightEdge: true,
         timeVisible: true,
         secondsVisible: false
       }
@@ -75,6 +81,7 @@ export default function PriceChart({ candles, result }: PriceChartProps) {
     const resizeObserver = new ResizeObserver(([entry]) => {
       if (entry) {
         chart.applyOptions({ width: entry.contentRect.width });
+        chart.timeScale().fitContent();
       }
     });
     resizeObserver.observe(containerRef.current);
@@ -117,17 +124,18 @@ export default function PriceChart({ candles, result }: PriceChartProps) {
 
 function toMarkers(events: TradeEvent[]): SeriesMarker<Time>[] {
   return events.map((event) => {
-    const color = markerColors[(event.slotNumber - 1) % markerColors.length];
+    const style = tradeMarkerStyles[event.type];
     return {
       time: event.epochSeconds as UTCTimestamp,
-      position: event.type === "BUY" ? "belowBar" : "aboveBar",
-      color,
-      shape: event.type === "BUY" ? "arrowUp" : "arrowDown",
-      text: `S${event.slotNumber} ${event.type === "BUY" ? "BUY" : "SELL"} ${formatPrice(event.price)}`
+      position: style.position,
+      color: style.color,
+      shape: style.shape,
+      size: 1.55,
+      text: `[${style.label}] S${event.slotNumber} @ ${formatPrice(event.price)}`
     };
   });
 }
 
 function formatPrice(value: number) {
-  return value.toLocaleString("ko-KR", { maximumFractionDigits: 2 });
+  return Math.round(value).toLocaleString("ko-KR", { maximumFractionDigits: 0 });
 }

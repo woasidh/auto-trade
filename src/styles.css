@@ -57,7 +57,7 @@ h2 {
 
 .summaryStrip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(104px, 1fr));
+  grid-template-columns: repeat(4, minmax(128px, 1fr));
   gap: 8px;
 }
 
@@ -72,6 +72,7 @@ h2 {
   display: block;
   color: #667085;
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .metric strong {
@@ -88,6 +89,10 @@ h2 {
 .metric.bad strong,
 .badText {
   color: #b42318;
+}
+
+.mutedValue {
+  color: #98a2b3;
 }
 
 .workbench {
@@ -179,10 +184,42 @@ select:disabled {
 
 .dataNote {
   display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
   justify-content: space-between;
   margin: -4px 0 14px;
   color: #667085;
   font-size: 12px;
+}
+
+.returnFormula {
+  display: grid;
+  gap: 4px;
+  margin: -2px 0 14px;
+  border: 1px solid #d9e0e8;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 10px 12px;
+}
+
+.returnFormula span {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.returnFormula strong {
+  color: #111827;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.returnFormula strong.goodText {
+  color: #0f766e;
+}
+
+.returnFormula strong.badText {
+  color: #b42318;
 }
 
 .buttonRow {

@@ -4,23 +4,52 @@ import { createSlots, simulateSevenSplit } from "./simulator";
 import type { Candle, SimulationSettings } from "./types";
 
 const baseSettings: SimulationSettings = {
-  slotCount: 7,
+  slotPriceOffset: 1,
   upperPrice: 107,
   lowerPrice: 101,
   totalBudget: 700_000,
-  targetProfitRate: 0.01,
+  targetProfitPriceUnit: 1,
   feeRate: 0.0004
 };
 
 describe("createSlots", () => {
-  it("calculates prices for 2, 7, and 20 slots", () => {
-    expect(createSlots({ ...baseSettings, slotCount: 2 }).map((slot) => slot.buyPrice)).toEqual([107, 101]);
+  it("calculates every slot from upper to lower price by integer offset", () => {
     expect(createSlots(baseSettings).map((slot) => slot.buyPrice)).toEqual([107, 106, 105, 104, 103, 102, 101]);
+  });
 
-    const slots = createSlots({ ...baseSettings, slotCount: 20 });
-    expect(slots).toHaveLength(20);
+  it("includes the lower price when the offset does not divide the range evenly", () => {
+    const slots = createSlots({ ...baseSettings, slotPriceOffset: 3, lowerPrice: 100 });
+
+    expect(slots.map((slot) => slot.buyPrice)).toEqual([107, 104, 101, 100]);
+    expect(slots.every((slot) => slot.budget === 175_000)).toBe(true);
+  });
+
+  it("keeps slot buy and target sell prices in whole price units", () => {
+    const slots = createSlots({
+      ...baseSettings,
+      upperPrice: 107.8,
+      lowerPrice: 101.2
+    });
+
+    expect(slots.every((slot) => Number.isInteger(slot.buyPrice))).toBe(true);
+    expect(slots.every((slot) => Number.isInteger(slot.targetSellPrice))).toBe(true);
     expect(slots[0].buyPrice).toBe(107);
-    expect(slots[19].buyPrice).toBe(101);
+    expect(slots[0].targetSellPrice).toBe(108);
+  });
+
+  it("calculates target returns from integer price units after fees", () => {
+    const slots = createSlots({
+      slotPriceOffset: 1,
+      upperPrice: 100,
+      lowerPrice: 99,
+      totalBudget: 200_000,
+      targetProfitPriceUnit: 1,
+      feeRate: 0.001
+    });
+
+    expect(slots[0].targetSellPrice).toBe(101);
+    expect(slots[0].grossTargetProfitRate).toBeCloseTo(0.01);
+    expect(slots[0].netTargetProfitRate).toBeCloseTo((101 * 0.999) / (100 * 1.001) - 1);
   });
 });
 
@@ -60,11 +89,11 @@ describe("simulateSevenSplit", () => {
         candle("2026-05-10T00:01:00", 102, 102, 102)
       ],
       {
-        slotCount: 2,
+        slotPriceOffset: 1,
         upperPrice: 100,
         lowerPrice: 99,
         totalBudget: 200_000,
-        targetProfitRate: 0.01,
+        targetProfitPriceUnit: 1,
         feeRate: 0.001
       }
     );
@@ -77,11 +106,11 @@ describe("simulateSevenSplit", () => {
     const result = simulateSevenSplit(
       [candle("2026-05-10T00:00:00", 100, 100, 102)],
       {
-        slotCount: 2,
+        slotPriceOffset: 1,
         upperPrice: 100,
         lowerPrice: 99,
         totalBudget: 200_000,
-        targetProfitRate: 0.01,
+        targetProfitPriceUnit: 1,
         feeRate: 0.001
       }
     );

@@ -19,21 +19,42 @@ interface MutableSlot extends SlotConfig {
   trades: TradeEvent[];
 }
 
+const integerUnitTolerance = 1e-9;
+
 export function createSlots(settings: SimulationSettings): SlotConfig[] {
   validateSettings(settings);
 
-  const step = (settings.upperPrice - settings.lowerPrice) / (settings.slotCount - 1);
-  const budget = settings.totalBudget / settings.slotCount;
+  const buyPrices = createSlotBuyPrices(settings);
+  const budget = settings.totalBudget / buyPrices.length;
 
-  return Array.from({ length: settings.slotCount }, (_, index) => {
-    const buyPrice = settings.upperPrice - step * index;
+  return buyPrices.map((buyPrice, index) => {
+    const targetSellPrice = buyPrice + settings.targetProfitPriceUnit;
+
     return {
       slotNumber: index + 1,
       buyPrice,
-      targetSellPrice: buyPrice * (1 + settings.targetProfitRate),
+      targetSellPrice,
+      grossTargetProfitRate: calculateGrossTargetProfitRate(buyPrice, targetSellPrice),
+      netTargetProfitRate: calculateNetTargetProfitRate(buyPrice, targetSellPrice, settings.feeRate),
       budget
     };
   });
+}
+
+function createSlotBuyPrices(settings: SimulationSettings): number[] {
+  const upperPrice = toBuyPriceUnit(settings.upperPrice);
+  const lowerPrice = toBuyPriceUnit(settings.lowerPrice);
+  const buyPrices: number[] = [];
+
+  for (let buyPrice = upperPrice; buyPrice > lowerPrice; buyPrice -= settings.slotPriceOffset) {
+    buyPrices.push(buyPrice);
+  }
+
+  if (buyPrices[buyPrices.length - 1] !== lowerPrice) {
+    buyPrices.push(lowerPrice);
+  }
+
+  return buyPrices;
 }
 
 export function simulateSevenSplit(candles: Candle[], settings: SimulationSettings): SimulationResult {
@@ -164,23 +185,35 @@ export function simulateSevenSplit(candles: Candle[], settings: SimulationSettin
 }
 
 export function validateSettings(settings: SimulationSettings): void {
-  if (!Number.isInteger(settings.slotCount) || settings.slotCount < 2 || settings.slotCount > 20) {
-    throw new Error("Slot count must be an integer from 2 to 20");
+  if (!Number.isInteger(settings.slotPriceOffset) || settings.slotPriceOffset <= 0) {
+    throw new Error("Slot price offset must be a positive integer");
   }
 
-  if (settings.upperPrice <= settings.lowerPrice) {
-    throw new Error("Upper price must be greater than lower price");
+  if (toBuyPriceUnit(settings.upperPrice) <= toBuyPriceUnit(settings.lowerPrice)) {
+    throw new Error("Upper price must be at least one integer price unit greater than lower price");
   }
 
   if (settings.totalBudget <= 0) {
     throw new Error("Total budget must be greater than 0");
   }
 
-  if (settings.targetProfitRate <= 0) {
-    throw new Error("Target profit rate must be greater than 0");
+  if (!Number.isInteger(settings.targetProfitPriceUnit) || settings.targetProfitPriceUnit <= 0) {
+    throw new Error("Target profit price unit must be a positive integer");
   }
 
   if (settings.feeRate < 0) {
     throw new Error("Fee rate cannot be negative");
   }
+}
+
+function toBuyPriceUnit(price: number): number {
+  return Math.floor(price + integerUnitTolerance);
+}
+
+export function calculateGrossTargetProfitRate(buyPrice: number, targetSellPrice: number): number {
+  return targetSellPrice / buyPrice - 1;
+}
+
+export function calculateNetTargetProfitRate(buyPrice: number, targetSellPrice: number, feeRate: number): number {
+  return (targetSellPrice * (1 - feeRate)) / (buyPrice * (1 + feeRate)) - 1;
 }

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import PriceChart from "./components/PriceChart";
 import { getPriceBand } from "./shared/candles";
 import { createSlots, simulateSevenSplit } from "./shared/simulator";
-import type { Candle, DatasetDate, DatasetResponse, SimulationResult, SimulationSettings } from "./shared/types";
+import type { Candle, DatasetDate, DatasetResponse, SimulationResult, SimulationSettings, SlotConfig } from "./shared/types";
 
 type DateMode = "single" | "range";
 
@@ -17,10 +17,15 @@ interface CandleResponse {
 
 const market = "KRW-USDT";
 const interval = "1m";
+const initialFromDate = "2025-09-01";
+const initialToDate = "2026-05-10";
+const initialLowerPrice = 1460;
+const initialUpperPrice = 1480;
+const initialTotalBudget = 10_000_000;
 
 export default function App() {
   const [dates, setDates] = useState<DatasetDate[]>([]);
-  const [dateMode, setDateMode] = useState<DateMode>("single");
+  const [dateMode, setDateMode] = useState<DateMode>("range");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [candles, setCandles] = useState<Candle[]>([]);
@@ -28,11 +33,11 @@ export default function App() {
   const [error, setError] = useState("");
   const [result, setResult] = useState<SimulationResult | null>(null);
   const [settings, setSettings] = useState({
-    slotCount: 7,
-    upperPrice: 0,
-    lowerPrice: 0,
-    totalBudget: 1_000_000,
-    targetProfitPercent: 0.2,
+    slotPriceOffset: 3,
+    upperPrice: initialUpperPrice,
+    lowerPrice: initialLowerPrice,
+    totalBudget: initialTotalBudget,
+    targetProfitPriceUnit: 3,
     feePercent: 0.04
   });
 
@@ -45,10 +50,11 @@ export default function App() {
           ?.intervals.find((item) => item.interval === interval);
         const nextDates = dataset?.dates ?? [];
         const latestDate = nextDates[nextDates.length - 1]?.date ?? "";
+        const hasInitialRange = nextDates.some((item) => item.date === initialFromDate) && nextDates.some((item) => item.date === initialToDate);
 
         setDates(nextDates);
-        setFromDate(latestDate);
-        setToDate(latestDate);
+        setFromDate(hasInitialRange ? initialFromDate : latestDate);
+        setToDate(hasInitialRange ? initialToDate : latestDate);
       })
       .catch(() => setError("데이터 목록을 불러오지 못했습니다."))
       .finally(() => setIsLoading(false));
@@ -73,14 +79,6 @@ export default function App() {
       .then((data: CandleResponse) => {
         setCandles(data.candles);
         setResult(null);
-
-        const priceBand = getPriceBand(data.candles);
-        if (priceBand) {
-          setSettings((current) => ({
-            ...current,
-            ...priceBand
-          }));
-        }
       })
       .catch(() => setError("캔들 데이터를 불러오지 못했습니다."))
       .finally(() => setIsLoading(false));
@@ -88,11 +86,11 @@ export default function App() {
 
   const simulationSettings: SimulationSettings = useMemo(
     () => ({
-      slotCount: clampInteger(settings.slotCount, 2, 20),
+      slotPriceOffset: clampInteger(settings.slotPriceOffset, 1, Number.MAX_SAFE_INTEGER),
       upperPrice: settings.upperPrice,
       lowerPrice: settings.lowerPrice,
       totalBudget: settings.totalBudget,
-      targetProfitRate: settings.targetProfitPercent / 100,
+      targetProfitPriceUnit: clampInteger(settings.targetProfitPriceUnit, 1, Number.MAX_SAFE_INTEGER),
       feeRate: settings.feePercent / 100
     }),
     [settings]
@@ -105,10 +103,12 @@ export default function App() {
       return [];
     }
   }, [simulationSettings]);
+  const targetReturnPreview = useMemo(() => getTargetReturnPreview(slotPreview), [slotPreview]);
 
   const selectedDate = dates.find((item) => item.date === fromDate);
   const selectedToDate = dates.find((item) => item.date === (dateMode === "single" ? fromDate : toDate));
   const syntheticCount = candles.filter((candle) => candle.synthetic).length;
+  const averageClosePrice = useMemo(() => getAverageClosePrice(candles), [candles]);
 
   function runSimulation() {
     try {
@@ -141,10 +141,10 @@ export default function App() {
         </div>
         {result && (
           <div className="summaryStrip">
-            <Metric label="총 손익" value={money(result.summary.totalProfit)} tone={result.summary.totalProfit >= 0 ? "good" : "bad"} />
-            <Metric label="실현" value={money(result.summary.realizedProfit)} />
-            <Metric label="미실현" value={money(result.summary.unrealizedProfit)} />
-            <Metric label="ROI" value={percent(result.summary.roi)} tone={result.summary.roi >= 0 ? "good" : "bad"} />
+            <Metric label="합산 손익" value={money(result.summary.totalProfit)} tone={profitTone(result.summary.totalProfit)} />
+            <Metric label="순수이익" value={money(result.summary.realizedProfit)} tone={profitTone(result.summary.realizedProfit)} />
+            <Metric label="보유 평가손익" value={money(result.summary.unrealizedProfit)} tone={profitTone(result.summary.unrealizedProfit)} />
+            <Metric label="ROI(합산)" value={percent(result.summary.roi)} tone={profitTone(result.summary.roi)} />
           </div>
         )}
       </header>
@@ -185,16 +185,26 @@ export default function App() {
           <div className="dataNote">
             <span>원본 누락 {((selectedDate?.missing ?? 0) + (dateMode === "range" ? selectedToDate?.missing ?? 0 : 0)).toLocaleString("ko-KR")}</span>
             <span>보정 {syntheticCount.toLocaleString("ko-KR")}</span>
+            {dateMode === "range" && averageClosePrice !== null && <span>평균가 {price(averageClosePrice)}</span>}
           </div>
 
           <div className="fieldGrid">
-            <NumberField label="슬롯 수" value={settings.slotCount} min={2} max={20} step={1} onChange={(slotCount) => updateSetting("slotCount", Math.round(slotCount))} />
+            <NumberField label="슬롯 간격" value={settings.slotPriceOffset} min={1} step={1} onChange={(slotPriceOffset) => updateSetting("slotPriceOffset", Math.max(1, Math.round(slotPriceOffset)))} />
             <NumberField label="총 투자금" value={settings.totalBudget} min={1000} step={10000} onChange={(totalBudget) => updateSetting("totalBudget", totalBudget)} />
-            <NumberField label="상단 가격" value={settings.upperPrice} step={0.01} onChange={(upperPrice) => updateSetting("upperPrice", upperPrice)} />
-            <NumberField label="하단 가격" value={settings.lowerPrice} step={0.01} onChange={(lowerPrice) => updateSetting("lowerPrice", lowerPrice)} />
-            <NumberField label="목표 수익률 %" value={settings.targetProfitPercent} step={0.01} onChange={(targetProfitPercent) => updateSetting("targetProfitPercent", targetProfitPercent)} />
+            <NumberField label="상단 가격" value={settings.upperPrice} step={1} onChange={(upperPrice) => updateSetting("upperPrice", Math.floor(upperPrice))} />
+            <NumberField label="하단 가격" value={settings.lowerPrice} step={1} onChange={(lowerPrice) => updateSetting("lowerPrice", Math.floor(lowerPrice))} />
+            <NumberField label="목표 수익 단위" value={settings.targetProfitPriceUnit} min={1} step={1} onChange={(targetProfitPriceUnit) => updateSetting("targetProfitPriceUnit", Math.max(1, Math.round(targetProfitPriceUnit)))} />
             <NumberField label="수수료 %" value={settings.feePercent} step={0.01} onChange={(feePercent) => updateSetting("feePercent", feePercent)} />
           </div>
+
+          {targetReturnPreview && (
+            <div className="returnFormula">
+              <span>평균 기준 정수 수익률 - 수수료</span>
+              <strong className={profitClass(targetReturnPreview.netRate)}>
+                {percent(targetReturnPreview.grossRate)} - {percent(targetReturnPreview.feeImpactRate)} = {percent(targetReturnPreview.netRate)}
+              </strong>
+            </div>
+          )}
 
           <div className="buttonRow">
             <button className="ghostButton" onClick={resetBand} title="밴드 초기화">
@@ -209,13 +219,14 @@ export default function App() {
           {error && <p className="errorText">{error}</p>}
 
           <div className="slotPreview">
-            <h2>슬롯 가격</h2>
+            <h2>슬롯 가격 ({slotPreview.length}개)</h2>
             <table>
               <thead>
                 <tr>
                   <th>슬롯</th>
                   <th>매수</th>
                   <th>목표</th>
+                  <th>순수익률</th>
                 </tr>
               </thead>
               <tbody>
@@ -224,6 +235,7 @@ export default function App() {
                     <td>S{slot.slotNumber}</td>
                     <td>{price(slot.buyPrice)}</td>
                     <td>{price(slot.targetSellPrice)}</td>
+                    <td className={profitClass(slot.netTargetProfitRate)}>{percent(slot.netTargetProfitRate)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -249,9 +261,9 @@ export default function App() {
                   <span className={slot.status === "HOLDING" ? "holding" : "empty"}>{slot.status}</span>
                 </div>
                 <dl>
-                  <div><dt>총 손익</dt><dd className={slot.totalProfit >= 0 ? "goodText" : "badText"}>{money(slot.totalProfit)}</dd></div>
-                  <div><dt>실현</dt><dd>{money(slot.realizedProfit)}</dd></div>
-                  <div><dt>미실현</dt><dd>{money(slot.unrealizedProfit)}</dd></div>
+                  <div><dt>합산 손익</dt><dd className={profitClass(slot.totalProfit)}>{money(slot.totalProfit)}</dd></div>
+                  <div><dt>순수이익</dt><dd className={profitClass(slot.realizedProfit)}>{money(slot.realizedProfit)}</dd></div>
+                  <div><dt>보유 평가</dt><dd className={slot.status === "HOLDING" ? profitClass(slot.unrealizedProfit) : "mutedValue"}>{slot.status === "HOLDING" ? money(slot.unrealizedProfit) : "-"}</dd></div>
                   <div><dt>ROI</dt><dd>{percent(slot.roi)}</dd></div>
                   <div><dt>거래</dt><dd>{slot.tradeCount}</dd></div>
                   <div><dt>보유</dt><dd>{slot.quantity ? slot.quantity.toFixed(6) : "-"}</dd></div>
@@ -328,11 +340,54 @@ function money(value: number) {
 }
 
 function price(value: number) {
-  return value.toLocaleString("ko-KR", { maximumFractionDigits: 2 });
+  return Math.round(value).toLocaleString("ko-KR", { maximumFractionDigits: 0 });
 }
 
 function percent(value: number) {
   return `${(value * 100).toFixed(2)}%`;
+}
+
+function getAverageClosePrice(candles: Candle[]) {
+  if (candles.length === 0) {
+    return null;
+  }
+
+  return candles.reduce((sum, candle) => sum + candle.close, 0) / candles.length;
+}
+
+function getTargetReturnPreview(slots: SlotConfig[]) {
+  if (slots.length === 0) {
+    return null;
+  }
+
+  const grossRate = average(slots.map((slot) => slot.grossTargetProfitRate));
+  const netRate = average(slots.map((slot) => slot.netTargetProfitRate));
+
+  return {
+    grossRate,
+    netRate,
+    feeImpactRate: grossRate - netRate
+  };
+}
+
+function average(values: number[]) {
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function profitTone(value: number): "good" | "bad" | undefined {
+  if (value > 0) {
+    return "good";
+  }
+
+  if (value < 0) {
+    return "bad";
+  }
+
+  return undefined;
+}
+
+function profitClass(value: number) {
+  return profitTone(value) === "bad" ? "badText" : profitTone(value) === "good" ? "goodText" : "";
 }
 
 function clampInteger(value: number, minValue: number, maxValue: number) {

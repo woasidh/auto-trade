@@ -45,11 +45,11 @@ export interface DatasetResponse {
 }
 
 export interface SimulationSettings {
-  slotCount: number;
+  slotPriceOffset: number;
   upperPrice: number;
   lowerPrice: number;
   totalBudget: number;
-  targetProfitRate: number;
+  targetProfitPriceUnit: number;
   feeRate: number;
 }
 
@@ -57,6 +57,8 @@ export interface SlotConfig {
   slotNumber: number;
   buyPrice: number;
   targetSellPrice: number;
+  grossTargetProfitRate: number;
+  netTargetProfitRate: number;
   budget: number;
 }
 
