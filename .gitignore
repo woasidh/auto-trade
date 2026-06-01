@@ -15,3 +15,7 @@ pnpm-debug.log*
 
 coverage/
 .vite/
+
+data/*.sqlite
+data/*.sqlite-shm
+data/*.sqlite-wal

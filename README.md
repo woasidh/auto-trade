@@ -41,6 +41,14 @@ http://localhost:5173
 
 ## 사용 방법
 
+상단 내비게이션에서 페이지를 전환합니다.
+
+- `시뮬레이션`: 기존 백테스트 화면
+- `개발자 테스트`: 빗썸 Public API 연결 확인
+- `설정`: 운영 설정 영역
+
+### 시뮬레이션
+
 1. 기간을 선택합니다.
    - `단일`: 하루치 데이터
    - `범위`: 여러 일자 데이터
@@ -60,6 +68,25 @@ http://localhost:5173
    - 총 손익
    - ROI
    - 슬롯별 거래 이력
+
+### 개발자 테스트
+
+빗썸 공식 Public API를 로컬 API 서버에서 프록시해 호출합니다. API Key 없이 다음 요청을 확인할 수 있습니다.
+
+- 거래 대상 목록: `GET /v1/market/all`
+- 현재가: `GET /v1/ticker`
+- 호가: `GET /v1/orderbook`
+- 분봉: `GET /v1/candles/minutes/{unit}`
+
+### 설정
+
+개발자 테스트 화면의 거래 페어, 분봉 단위, 조회 개수는 화면 안에서만 임시로 변경합니다. 테스트 기본값은 저장하지 않습니다.
+
+```text
+data/slice-trade.sqlite
+```
+
+SQLite DB는 이후 운영 설정과 자동매매 상태 저장 용도로 사용합니다. API 키, Secret Key, 계좌번호 같은 민감 정보는 DB에 저장하지 않습니다.
 
 ## 데이터 위치
 
@@ -98,6 +125,12 @@ npm run build
 ```http
 GET http://localhost:5174/api/datasets
 GET http://localhost:5174/api/candles?market=KRW-USDT&interval=1m&from=2026-05-10&to=2026-05-10
+GET http://localhost:5174/api/settings
+PUT http://localhost:5174/api/settings
+GET http://localhost:5174/api/bithumb/markets?isDetails=true
+GET http://localhost:5174/api/bithumb/ticker?markets=KRW-BTC
+GET http://localhost:5174/api/bithumb/orderbook?markets=KRW-BTC
+GET http://localhost:5174/api/bithumb/candles/minutes?unit=1&market=KRW-BTC&count=20
 ```
 
 ## 시뮬레이션 규칙

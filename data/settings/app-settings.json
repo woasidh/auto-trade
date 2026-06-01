@@ -1,0 +1,7 @@
+{
+  "bithumb": {
+    "testMarket": "KRW-BTC",
+    "candleUnit": 1,
+    "candleCount": 20
+  }
+}
