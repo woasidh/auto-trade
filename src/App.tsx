@@ -1,11 +1,12 @@
-import { BarChart3, LayoutDashboard, Settings, Wrench } from "lucide-react";
+import { BarChart3, Bot, LayoutDashboard, Settings, Wrench } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import BithumbTestPage from "./pages/BithumbTestPage";
 import DashboardPage from "./pages/DashboardPage";
 import SettingsPage from "./pages/SettingsPage";
 import SimulationPage from "./pages/SimulationPage";
+import TradingPage from "./pages/TradingPage";
 
-type RoutePath = "/" | "/dashboard" | "/bithumb-test" | "/settings";
+type RoutePath = "/" | "/dashboard" | "/trading" | "/bithumb-test" | "/settings";
 
 const routes: Array<{
   path: RoutePath;
@@ -14,6 +15,7 @@ const routes: Array<{
 }> = [
   { path: "/", label: "시뮬레이션", icon: BarChart3 },
   { path: "/dashboard", label: "대시보드", icon: LayoutDashboard },
+  { path: "/trading", label: "자동매매", icon: Bot },
   { path: "/bithumb-test", label: "개발자 테스트", icon: Wrench },
   { path: "/settings", label: "설정", icon: Settings }
 ];
@@ -63,6 +65,7 @@ export default function App() {
 
       {path === "/" && <SimulationPage />}
       {path === "/dashboard" && <DashboardPage />}
+      {path === "/trading" && <TradingPage />}
       {path === "/bithumb-test" && <BithumbTestPage />}
       {path === "/settings" && <SettingsPage />}
     </>
@@ -70,7 +73,7 @@ export default function App() {
 }
 
 function normalizePath(path: string): RoutePath {
-  if (path === "/dashboard" || path === "/bithumb-test" || path === "/settings") {
+  if (path === "/dashboard" || path === "/trading" || path === "/bithumb-test" || path === "/settings") {
     return path;
   }
 

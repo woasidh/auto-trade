@@ -14,6 +14,8 @@ import { defaultAppSettings, normalizeAppSettings, supportedMinuteUnits } from "
 import type { DatasetResponse, RawBithumbCandle } from "../src/shared/types";
 import { openDatabase } from "./db";
 import { getAppSettings, saveAppSettings, seedAppSettingsIfMissing, settingsStorage } from "./settingsRepository";
+import { TradingRunner } from "./tradingRunner";
+import { getTradingPersistenceSnapshot } from "./tradingRepository";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -24,6 +26,7 @@ const localEnvFilePath = path.join(rootDir, ".env.local");
 const bithumbApiBaseUrl = "https://api.bithumb.com";
 const port = Number(process.env.API_PORT ?? 5174);
 const db = openDatabase(settingsDbFilePath);
+const tradingRunner = new TradingRunner(db, fetchBithumbTradePrice);
 
 const app = express();
 
@@ -31,6 +34,7 @@ app.use(express.json({ limit: "128kb" }));
 
 await seedAppSettingsIfMissing(db, legacySettingsFilePath);
 await loadLocalEnv();
+await tradingRunner.recover();
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
@@ -55,6 +59,62 @@ app.put("/api/settings", async (req, res, next) => {
 
     const savedSettings = saveAppSettings(db, settings);
     res.json({ settings: savedSettings, filePath: path.relative(rootDir, settingsDbFilePath), storage: settingsStorage });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/trading/persistence", (_req, res, next) => {
+  try {
+    res.json(getTradingPersistenceSnapshot(db));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/trading/strategy", (req, res, next) => {
+  try {
+    const input = normalizePaperStrategyRequest(req.body);
+    if (!input.ok) {
+      res.status(400).json({ error: input.error });
+      return;
+    }
+
+    res.json(tradingRunner.createPaperStrategy(input.value));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/trading/start", async (req, res, next) => {
+  try {
+    const body = isRecord(req.body) ? req.body : {};
+    const strategyId = typeof body.strategyId === "string" && body.strategyId.trim() ? body.strategyId.trim() : undefined;
+    res.json(await tradingRunner.start(strategyId));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/trading/pause", (_req, res, next) => {
+  try {
+    res.json(tradingRunner.pause());
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/trading/stop", (_req, res, next) => {
+  try {
+    res.json(tradingRunner.stop());
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/trading/tick", async (_req, res, next) => {
+  try {
+    res.json(await tradingRunner.tick());
   } catch (error) {
     next(error);
   }
@@ -395,6 +455,27 @@ async function requestBithumb(endpoint: string) {
   }
 }
 
+async function fetchBithumbTradePrice(market: string): Promise<number> {
+  const normalizedMarket = normalizeMarket(market);
+  if (!normalizedMarket) {
+    throw new Error("Invalid market");
+  }
+
+  const response = await requestBithumb(`/v1/ticker?${new URLSearchParams({ markets: normalizedMarket }).toString()}`);
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error("Bithumb ticker request failed");
+  }
+
+  const data = isRecord(response.body) ? response.body.data : undefined;
+  const ticker = Array.isArray(data) ? data[0] : undefined;
+  const tradePrice = isRecord(ticker) ? Number(ticker.trade_price) : NaN;
+  if (!Number.isFinite(tradePrice) || tradePrice <= 0) {
+    throw new Error("Bithumb ticker response did not include trade_price");
+  }
+
+  return tradePrice;
+}
+
 async function requestBithumbPrivate({
   method,
   endpoint,
@@ -610,6 +691,80 @@ function normalizeOrderRequest(value: unknown):
   };
 }
 
+function normalizePaperStrategyRequest(value: unknown):
+  | {
+      ok: true;
+      value: {
+        market: string;
+        upperPrice: number;
+        lowerPrice: number;
+        slotCount: number;
+        totalBudget: number;
+        targetProfitRate: number;
+        feeRate: number;
+        slippageRate: number;
+      };
+    }
+  | { ok: false; error: string } {
+  const body = isRecord(value) ? value : {};
+  const requestedMode = typeof body.mode === "string" ? body.mode.trim().toUpperCase() : "PAPER";
+  if (requestedMode === "LIVE") {
+    return { ok: false, error: "LIVE trading is disabled in this MVP" };
+  }
+
+  const market = normalizeMarket(String(body.market ?? ""));
+  const upperPrice = positiveNumber(body.upperPrice);
+  const lowerPrice = positiveNumber(body.lowerPrice);
+  const slotCount = clampInteger(Number(body.slotCount ?? 7), 2, 20);
+  const totalBudget = positiveNumber(body.totalBudget);
+  const targetProfitRate =
+    body.targetProfitRate !== undefined
+      ? nonNegativeNumber(body.targetProfitRate)
+      : nonNegativeNumber(body.targetProfitPercent ?? 0.5) / 100;
+  const feeRate =
+    body.feeRate !== undefined
+      ? nonNegativeNumber(body.feeRate)
+      : nonNegativeNumber(body.feePercent ?? 0.04) / 100;
+  const slippageRate =
+    body.slippageRate !== undefined
+      ? nonNegativeNumber(body.slippageRate)
+      : nonNegativeNumber(body.slippagePercent ?? 0) / 100;
+
+  if (!market) {
+    return { ok: false, error: "Invalid market" };
+  }
+
+  if (!Number.isFinite(upperPrice) || !Number.isFinite(lowerPrice) || upperPrice <= lowerPrice) {
+    return { ok: false, error: "Upper price must be greater than lower price" };
+  }
+
+  if (!Number.isFinite(totalBudget) || totalBudget <= 0) {
+    return { ok: false, error: "Total budget must be greater than 0" };
+  }
+
+  if (!Number.isFinite(targetProfitRate) || targetProfitRate <= 0) {
+    return { ok: false, error: "Target profit rate must be greater than 0" };
+  }
+
+  if (!Number.isFinite(feeRate) || feeRate < 0 || !Number.isFinite(slippageRate) || slippageRate < 0) {
+    return { ok: false, error: "Fee and slippage rates cannot be negative" };
+  }
+
+  return {
+    ok: true,
+    value: {
+      market,
+      upperPrice,
+      lowerPrice,
+      slotCount,
+      totalBudget,
+      targetProfitRate,
+      feeRate,
+      slippageRate
+    }
+  };
+}
+
 function normalizeDecimalString(value: unknown) {
   if (typeof value !== "string" && typeof value !== "number") {
     return "";
@@ -617,6 +772,16 @@ function normalizeDecimalString(value: unknown) {
 
   const normalized = String(value).trim();
   return /^(0|[1-9]\d*)(\.\d+)?$/.test(normalized) && Number(normalized) > 0 ? normalized : "";
+}
+
+function positiveNumber(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : NaN;
+}
+
+function nonNegativeNumber(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : NaN;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
