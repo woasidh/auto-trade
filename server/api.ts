@@ -700,6 +700,7 @@ function normalizePaperStrategyRequest(value: unknown):
         lowerPrice: number;
         slotCount: number;
         totalBudget: number;
+        slotBudget: number;
         targetProfitRate: number;
         feeRate: number;
         slippageRate: number;
@@ -716,7 +717,8 @@ function normalizePaperStrategyRequest(value: unknown):
   const upperPrice = positiveNumber(body.upperPrice);
   const lowerPrice = positiveNumber(body.lowerPrice);
   const slotCount = clampInteger(Number(body.slotCount ?? 7), 2, 20);
-  const totalBudget = positiveNumber(body.totalBudget);
+  const slotBudget = positiveNumber(body.slotBudget);
+  const totalBudget = Number.isFinite(slotBudget) ? slotBudget * slotCount : positiveNumber(body.totalBudget);
   const targetProfitRate =
     body.targetProfitRate !== undefined
       ? nonNegativeNumber(body.targetProfitRate)
@@ -742,6 +744,10 @@ function normalizePaperStrategyRequest(value: unknown):
     return { ok: false, error: "Total budget must be greater than 0" };
   }
 
+  if (!Number.isFinite(slotBudget) && !Number.isFinite(positiveNumber(body.totalBudget))) {
+    return { ok: false, error: "Slot budget must be greater than 0" };
+  }
+
   if (!Number.isFinite(targetProfitRate) || targetProfitRate <= 0) {
     return { ok: false, error: "Target profit rate must be greater than 0" };
   }
@@ -758,6 +764,7 @@ function normalizePaperStrategyRequest(value: unknown):
       lowerPrice,
       slotCount,
       totalBudget,
+      slotBudget: Number.isFinite(slotBudget) ? slotBudget : totalBudget / slotCount,
       targetProfitRate,
       feeRate,
       slippageRate

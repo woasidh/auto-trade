@@ -17,6 +17,16 @@ export const defaultAppSettings: AppSettings = {
   }
 };
 
+export const defaultTradingSettings = {
+  market: "KRW-USDT",
+  upperPrice: 1480,
+  lowerPrice: 1460,
+  slotCount: 7,
+  slotBudget: 100_000,
+  targetProfitPercent: 0.5,
+  feePercent: 0.04
+} as const;
+
 export function normalizeAppSettings(value: unknown): AppSettings {
   const root = isRecord(value) ? value : {};
   const bithumb = isRecord(root.bithumb) ? root.bithumb : {};

@@ -5,8 +5,6 @@ import { getPriceBand } from "../shared/candles";
 import { createSlots, simulateSevenSplit } from "../shared/simulator";
 import type { Candle, DatasetDate, DatasetResponse, SimulationResult, SimulationSettings, SlotConfig } from "../shared/types";
 
-type DateMode = "single" | "range";
-
 interface CandleResponse {
   market: string;
   interval: string;
@@ -19,24 +17,30 @@ interface SimulationFormSettings {
   slotPriceOffset: number;
   upperPrice: number;
   lowerPrice: number;
-  totalBudget: number;
+  slotBudget: number;
   targetProfitPriceUnit: number;
   feePercent: number;
 }
 
+interface MonthOption {
+  month: string;
+  fromDate: string;
+  toDate: string;
+  dates: DatasetDate[];
+}
+
 const market = "KRW-USDT";
 const interval = "1m";
-const initialFromDate = "2025-09-01";
-const initialToDate = "2026-05-10";
+const initialFromMonth = "2025-09";
+const initialToMonth = "2026-05";
 const initialLowerPrice = 1460;
 const initialUpperPrice = 1480;
-const initialTotalBudget = 10_000_000;
+const initialSlotBudget = 100_000;
 
 export default function SimulationPage() {
   const [dates, setDates] = useState<DatasetDate[]>([]);
-  const [dateMode, setDateMode] = useState<DateMode>("range");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [fromMonth, setFromMonth] = useState("");
+  const [toMonth, setToMonth] = useState("");
   const [candles, setCandles] = useState<Candle[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -45,10 +49,22 @@ export default function SimulationPage() {
     slotPriceOffset: 3,
     upperPrice: initialUpperPrice,
     lowerPrice: initialLowerPrice,
-    totalBudget: initialTotalBudget,
+    slotBudget: initialSlotBudget,
     targetProfitPriceUnit: 3,
     feePercent: 0.04
   });
+
+  const monthOptions = useMemo(() => buildMonthOptions(dates), [dates]);
+  const toMonthOptions = useMemo(() => monthOptions.filter((option) => !fromMonth || option.month >= fromMonth), [fromMonth, monthOptions]);
+  const selectedFromMonth = monthOptions.find((option) => option.month === fromMonth);
+  const selectedToMonth = monthOptions.find((option) => option.month === toMonth);
+  const selectedRangeDates = useMemo(
+    () => monthOptions
+      .filter((option) => fromMonth && toMonth && option.month >= fromMonth && option.month <= toMonth)
+      .flatMap((option) => option.dates),
+    [fromMonth, monthOptions, toMonth]
+  );
+  const missingRawCount = selectedRangeDates.reduce((sum, date) => sum + date.missing, 0);
 
   useEffect(() => {
     fetch("/api/datasets")
@@ -58,27 +74,30 @@ export default function SimulationPage() {
           .find((item) => item.market === market)
           ?.intervals.find((item) => item.interval === interval);
         const nextDates = dataset?.dates ?? [];
-        const latestDate = nextDates[nextDates.length - 1]?.date ?? "";
-        const hasInitialRange = nextDates.some((item) => item.date === initialFromDate) && nextDates.some((item) => item.date === initialToDate);
+        const nextMonths = buildMonthOptions(nextDates);
+        const latestMonth = nextMonths[nextMonths.length - 1]?.month ?? "";
+        const hasInitialRange =
+          nextMonths.some((item) => item.month === initialFromMonth) && nextMonths.some((item) => item.month === initialToMonth);
 
         setDates(nextDates);
-        setFromDate(hasInitialRange ? initialFromDate : latestDate);
-        setToDate(hasInitialRange ? initialToDate : latestDate);
+        setFromMonth(hasInitialRange ? initialFromMonth : latestMonth);
+        setToMonth(hasInitialRange ? initialToMonth : latestMonth);
       })
       .catch(() => setError("데이터 목록을 불러오지 못했습니다."))
       .finally(() => setIsLoading(false));
   }, []);
 
   useEffect(() => {
-    if (!fromDate || !toDate) {
+    if (!selectedFromMonth || !selectedToMonth) {
       return;
     }
 
-    const effectiveTo = dateMode === "single" ? fromDate : toDate;
+    const fromDate = selectedFromMonth.fromDate;
+    const toDate = selectedToMonth.toDate;
     setIsLoading(true);
     setError("");
 
-    fetch(`/api/candles?market=${market}&interval=${interval}&from=${fromDate}&to=${effectiveTo}`)
+    fetch(`/api/candles?market=${market}&interval=${interval}&from=${fromDate}&to=${toDate}`)
       .then((response) => {
         if (!response.ok) {
           throw new Error("Failed to load candles");
@@ -91,19 +110,30 @@ export default function SimulationPage() {
       })
       .catch(() => setError("캔들 데이터를 불러오지 못했습니다."))
       .finally(() => setIsLoading(false));
-  }, [dateMode, fromDate, toDate]);
+  }, [selectedFromMonth, selectedToMonth]);
 
-  const simulationSettings: SimulationSettings = useMemo(
-    () => ({
+  const simulationSettings: SimulationSettings = useMemo(() => {
+    const previewSettings = {
       slotPriceOffset: clampInteger(settings.slotPriceOffset, 1, Number.MAX_SAFE_INTEGER),
       upperPrice: settings.upperPrice,
       lowerPrice: settings.lowerPrice,
-      totalBudget: settings.totalBudget,
+      totalBudget: 1,
       targetProfitPriceUnit: clampInteger(settings.targetProfitPriceUnit, 1, Number.MAX_SAFE_INTEGER),
       feeRate: settings.feePercent / 100
-    }),
-    [settings]
-  );
+    };
+    let slotCount = 1;
+
+    try {
+      slotCount = createSlots(previewSettings).length;
+    } catch {
+      slotCount = 1;
+    }
+
+    return {
+      ...previewSettings,
+      totalBudget: settings.slotBudget * slotCount
+    };
+  }, [settings]);
 
   const slotPreview = useMemo(() => {
     try {
@@ -114,8 +144,6 @@ export default function SimulationPage() {
   }, [simulationSettings]);
   const targetReturnPreview = useMemo(() => getTargetReturnPreview(slotPreview), [slotPreview]);
 
-  const selectedDate = dates.find((item) => item.date === fromDate);
-  const selectedToDate = dates.find((item) => item.date === (dateMode === "single" ? fromDate : toDate));
   const syntheticCount = candles.filter((candle) => candle.synthetic).length;
   const averageClosePrice = useMemo(() => getAverageClosePrice(candles), [candles]);
 
@@ -162,44 +190,37 @@ export default function SimulationPage() {
         <aside className="controlPanel">
           <div className="fieldGroup">
             <label>기간</label>
-            <div className="segmented">
-              <button className={dateMode === "single" ? "active" : ""} onClick={() => setDateMode("single")} type="button">단일</button>
-              <button className={dateMode === "range" ? "active" : ""} onClick={() => setDateMode("range")} type="button">범위</button>
-            </div>
           </div>
 
           <div className="fieldGrid">
             <label>
-              시작
-              <select value={fromDate} onChange={(event) => setFromDate(event.target.value)}>
-                {dates.map((date) => (
-                  <option key={date.date} value={date.date}>{date.date}</option>
+              시작 월
+              <select value={fromMonth} onChange={(event) => updateFromMonth(event.target.value)}>
+                {monthOptions.map((option) => (
+                  <option key={option.month} value={option.month}>{monthLabel(option.month)}</option>
                 ))}
               </select>
             </label>
             <label>
-              종료
-              <select
-                value={dateMode === "single" ? fromDate : toDate}
-                disabled={dateMode === "single"}
-                onChange={(event) => setToDate(event.target.value)}
-              >
-                {dates.map((date) => (
-                  <option key={date.date} value={date.date}>{date.date}</option>
+              종료 월
+              <select value={toMonth} onChange={(event) => updateToMonth(event.target.value)}>
+                {toMonthOptions.map((option) => (
+                  <option key={option.month} value={option.month}>{monthLabel(option.month)}</option>
                 ))}
               </select>
             </label>
           </div>
 
           <div className="dataNote">
-            <span>원본 누락 {((selectedDate?.missing ?? 0) + (dateMode === "range" ? selectedToDate?.missing ?? 0 : 0)).toLocaleString("ko-KR")}</span>
+            {selectedFromMonth && selectedToMonth && <span>{selectedFromMonth.fromDate} ~ {selectedToMonth.toDate}</span>}
+            <span>원본 누락 {missingRawCount.toLocaleString("ko-KR")}</span>
             <span>보정 {syntheticCount.toLocaleString("ko-KR")}</span>
-            {dateMode === "range" && averageClosePrice !== null && <span>평균가 {price(averageClosePrice)}</span>}
+            {averageClosePrice !== null && <span>평균가 {price(averageClosePrice)}</span>}
           </div>
 
           <div className="fieldGrid">
             <NumberField label="슬롯 간격" value={settings.slotPriceOffset} min={1} step={1} onChange={(slotPriceOffset) => updateSetting("slotPriceOffset", Math.max(1, Math.round(slotPriceOffset)))} />
-            <NumberField label="총 투자금" value={settings.totalBudget} min={1000} step={10000} onChange={(totalBudget) => updateSetting("totalBudget", totalBudget)} />
+            <NumberField label="슬롯별 투자금" value={settings.slotBudget} min={1000} step={10000} onChange={(slotBudget) => updateSetting("slotBudget", slotBudget)} />
             <NumberField label="상단 가격" value={settings.upperPrice} step={1} onChange={(upperPrice) => updateSetting("upperPrice", Math.floor(upperPrice))} />
             <NumberField label="하단 가격" value={settings.lowerPrice} step={1} onChange={(lowerPrice) => updateSetting("lowerPrice", Math.floor(lowerPrice))} />
             <NumberField label="목표 수익 단위" value={settings.targetProfitPriceUnit} min={1} step={1} onChange={(targetProfitPriceUnit) => updateSetting("targetProfitPriceUnit", Math.max(1, Math.round(targetProfitPriceUnit)))} />
@@ -303,6 +324,17 @@ export default function SimulationPage() {
     setSettings((current) => ({ ...current, [key]: value }));
     setResult(null);
   }
+
+  function updateFromMonth(nextMonth: string) {
+    setFromMonth(nextMonth);
+    setToMonth((current) => (!current || current < nextMonth ? nextMonth : current));
+    setResult(null);
+  }
+
+  function updateToMonth(nextMonth: string) {
+    setToMonth(nextMonth);
+    setResult(null);
+  }
 }
 
 function NumberField({
@@ -401,4 +433,31 @@ function profitClass(value: number) {
 
 function clampInteger(value: number, minValue: number, maxValue: number) {
   return Math.min(maxValue, Math.max(minValue, Math.round(value)));
+}
+
+function buildMonthOptions(dates: DatasetDate[]): MonthOption[] {
+  const grouped = new Map<string, DatasetDate[]>();
+
+  for (const date of dates) {
+    const month = date.date.slice(0, 7);
+    grouped.set(month, [...(grouped.get(month) ?? []), date]);
+  }
+
+  return [...grouped.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([month, monthDates]) => {
+      const sortedDates = [...monthDates].sort((left, right) => left.date.localeCompare(right.date));
+
+      return {
+        month,
+        fromDate: sortedDates[0].date,
+        toDate: sortedDates[sortedDates.length - 1].date,
+        dates: sortedDates
+      };
+    });
+}
+
+function monthLabel(month: string) {
+  const [year, monthNumber] = month.split("-");
+  return `${year}년 ${monthNumber}월`;
 }

@@ -1,5 +1,6 @@
 import { Pause, Play, Plus, RefreshCw, Square } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { defaultTradingSettings } from "../shared/settings";
 
 type RunnerStatus = "RUNNING" | "PAUSED" | "RECOVERING" | "STOPPED";
 type StrategyStatus = "ACTIVE" | "PAUSED" | "STOPPED";
@@ -70,6 +71,21 @@ interface DecisionLog {
   createdAt: string;
 }
 
+interface TickerInfo {
+  market: string;
+  trade_price: number;
+  signed_change_rate?: number;
+  signed_change_price?: number;
+  acc_trade_price_24h?: number;
+  acc_trade_volume_24h?: number;
+  timestamp?: number;
+}
+
+interface ApiEnvelope<T> {
+  data?: T;
+  error?: string;
+}
+
 interface TradingSnapshot {
   runnerState: RunnerState;
   strategies: Strategy[];
@@ -84,19 +100,13 @@ interface StrategyForm {
   upperPrice: number;
   lowerPrice: number;
   slotCount: number;
-  totalBudget: number;
+  slotBudget: number;
   targetProfitPercent: number;
   feePercent: number;
 }
 
 const defaultForm: StrategyForm = {
-  market: "KRW-BTC",
-  upperPrice: 150_000_000,
-  lowerPrice: 140_000_000,
-  slotCount: 7,
-  totalBudget: 700_000,
-  targetProfitPercent: 0.5,
-  feePercent: 0.04
+  ...defaultTradingSettings
 };
 
 export default function TradingPage() {
@@ -106,6 +116,9 @@ export default function TradingPage() {
   const [isWorking, setIsWorking] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
+  const [ticker, setTicker] = useState<TickerInfo | null>(null);
+  const [tickerError, setTickerError] = useState("");
+  const [tickerUpdatedAt, setTickerUpdatedAt] = useState("");
 
   const activeStrategy = useMemo(() => {
     if (!snapshot) {
@@ -122,6 +135,7 @@ export default function TradingPage() {
     () => snapshot?.orders.filter((order) => order.strategyId === activeStrategy?.id).slice(0, 8) ?? [],
     [activeStrategy, snapshot]
   );
+  const tickerMarket = (activeStrategy?.market ?? form.market).trim().toUpperCase();
 
   useEffect(() => {
     loadSnapshot();
@@ -131,6 +145,46 @@ export default function TradingPage() {
 
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function pollTicker() {
+      if (!/^[A-Z0-9]+-[A-Z0-9]+$/.test(tickerMarket)) {
+        if (isMounted) {
+          setTicker(null);
+          setTickerError("마켓 형식을 확인하세요.");
+        }
+        return;
+      }
+
+      try {
+        const payload = await fetchJson<ApiEnvelope<TickerInfo[]>>(`/api/bithumb/ticker?markets=${encodeURIComponent(tickerMarket)}`);
+        const nextTicker = Array.isArray(payload.data) ? payload.data[0] : null;
+        if (!nextTicker) {
+          throw new Error("현재가 응답 없음");
+        }
+
+        if (isMounted) {
+          setTicker(nextTicker);
+          setTickerError("");
+          setTickerUpdatedAt(new Date().toLocaleTimeString("ko-KR"));
+        }
+      } catch (tickerLoadError) {
+        if (isMounted) {
+          setTickerError(tickerLoadError instanceof Error ? tickerLoadError.message : "현재가 조회 실패");
+        }
+      }
+    }
+
+    pollTicker();
+    const timer = window.setInterval(pollTicker, 3_000);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(timer);
+    };
+  }, [tickerMarket]);
 
   async function loadSnapshot(options: { quiet?: boolean } = {}) {
     if (!options.quiet) {
@@ -157,7 +211,10 @@ export default function TradingPage() {
     setStatus("");
 
     try {
-      const payload = await postJson<TradingSnapshot>("/api/trading/strategy", form);
+      const payload = await postJson<TradingSnapshot>("/api/trading/strategy", {
+        ...form,
+        totalBudget: form.slotBudget * form.slotCount
+      });
       setSnapshot(payload);
       setStatus("PAPER 전략 생성 완료");
     } catch (createError) {
@@ -196,9 +253,9 @@ export default function TradingPage() {
           <p>PAPER ONLY · {activeStrategy?.market ?? "전략 없음"}</p>
         </div>
         <div className="summaryStrip compact">
+          <Metric label="현재가" value={ticker ? money(ticker.trade_price) : "조회 중"} tone={profitTone(ticker?.signed_change_rate ?? 0)} />
           <Metric label="러너" value={runner?.status ?? "조회 전"} tone={runner?.status === "RUNNING" ? "good" : undefined} />
           <Metric label="보유 슬롯" value={`${holdingSlots}/${activeSlots.length}`} />
-          <Metric label="주문" value={`${activeOrders.length.toLocaleString("ko-KR")}건`} />
         </div>
       </header>
 
@@ -216,7 +273,7 @@ export default function TradingPage() {
             <NumberField label="상단 가격" value={form.upperPrice} step={1000} onChange={(upperPrice) => updateForm("upperPrice", upperPrice)} />
             <NumberField label="하단 가격" value={form.lowerPrice} step={1000} onChange={(lowerPrice) => updateForm("lowerPrice", lowerPrice)} />
             <NumberField label="슬롯 수" value={form.slotCount} min={2} max={20} step={1} onChange={(slotCount) => updateForm("slotCount", clampInteger(slotCount, 2, 20))} />
-            <NumberField label="총 예산" value={form.totalBudget} min={1000} step={10000} onChange={(totalBudget) => updateForm("totalBudget", totalBudget)} />
+            <NumberField label="슬롯별 투자금" value={form.slotBudget} min={1000} step={10000} onChange={(slotBudget) => updateForm("slotBudget", slotBudget)} />
             <NumberField label="목표 %" value={form.targetProfitPercent} min={0.01} step={0.01} onChange={(targetProfitPercent) => updateForm("targetProfitPercent", targetProfitPercent)} />
             <NumberField label="수수료 %" value={form.feePercent} min={0} step={0.01} onChange={(feePercent) => updateForm("feePercent", feePercent)} />
           </div>
@@ -249,10 +306,26 @@ export default function TradingPage() {
 
           {status && <p className="statusText">{status}</p>}
           {error && <p className="errorText">{error}</p>}
+          {tickerError && <p className="errorText">{tickerError}</p>}
           {runner?.lastError && <p className="errorText">{runner.lastError}</p>}
         </aside>
 
         <section className="tradingMain">
+          <article className="dashboardPanel wide">
+            <div className="sectionHeader">
+              <h2>실시간 시세</h2>
+              <span className="muted">{tickerUpdatedAt || "조회 전"}</span>
+            </div>
+            <div className="summaryTable">
+              <div><span>마켓</span><strong>{tickerMarket}</strong></div>
+              <div><span>현재가</span><strong>{ticker ? money(ticker.trade_price) : "-"}</strong></div>
+              <div><span>전일 대비</span><strong className={profitClass(ticker?.signed_change_rate ?? 0)}>{ticker ? percent(ticker.signed_change_rate ?? 0) : "-"}</strong></div>
+              <div><span>변동 금액</span><strong className={profitClass(ticker?.signed_change_price ?? 0)}>{ticker ? money(ticker.signed_change_price ?? 0) : "-"}</strong></div>
+              <div><span>24h 거래대금</span><strong>{ticker ? money(ticker.acc_trade_price_24h ?? 0) : "-"}</strong></div>
+              <div><span>갱신 주기</span><strong>3초</strong></div>
+            </div>
+          </article>
+
           <article className="dashboardPanel wide">
             <div className="sectionHeader">
               <h2>전략 상태</h2>
@@ -460,6 +533,30 @@ function money(value: number) {
 
 function percent(value: number) {
   return `${(value * 100).toFixed(2)}%`;
+}
+
+function profitClass(value: number) {
+  if (value > 0) {
+    return "goodText";
+  }
+
+  if (value < 0) {
+    return "badText";
+  }
+
+  return "";
+}
+
+function profitTone(value: number): "good" | "bad" | undefined {
+  if (value > 0) {
+    return "good";
+  }
+
+  if (value < 0) {
+    return "bad";
+  }
+
+  return undefined;
 }
 
 function decimal(value: number) {
