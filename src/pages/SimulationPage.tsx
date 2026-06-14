@@ -33,9 +33,9 @@ const market = "KRW-USDT";
 const interval = "1m";
 const initialFromMonth = "2025-09";
 const initialToMonth = "2026-05";
-const initialLowerPrice = 1460;
-const initialUpperPrice = 1480;
-const initialSlotBudget = 100_000;
+const initialLowerPrice = 1450;
+const initialUpperPrice = 1500;
+const initialSlotBudget = 1_000_000;
 
 export default function SimulationPage() {
   const [dates, setDates] = useState<DatasetDate[]>([]);
@@ -46,11 +46,11 @@ export default function SimulationPage() {
   const [error, setError] = useState("");
   const [result, setResult] = useState<SimulationResult | null>(null);
   const [settings, setSettings] = useState<SimulationFormSettings>({
-    slotPriceOffset: 3,
+    slotPriceOffset: 2,
     upperPrice: initialUpperPrice,
     lowerPrice: initialLowerPrice,
     slotBudget: initialSlotBudget,
-    targetProfitPriceUnit: 3,
+    targetProfitPriceUnit: 2,
     feePercent: 0.04
   });
 

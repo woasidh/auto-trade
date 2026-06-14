@@ -1,4 +1,4 @@
-export type SlotStatus = "EMPTY" | "HOLDING";
+export type SlotStatus = "EMPTY" | "HOLDING" | "BUY_PENDING" | "SELL_PENDING" | "PAUSED";
 export type TradeType = "BUY" | "SELL";
 
 export interface RawBithumbCandle {

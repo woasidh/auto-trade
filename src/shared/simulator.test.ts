@@ -54,11 +54,18 @@ describe("createSlots", () => {
 });
 
 describe("simulateSevenSplit", () => {
-  it("buys multiple slots when low crosses several buy prices", () => {
+  it("buys multiple slots when the candle range touches several buy prices", () => {
     const result = simulateSevenSplit([candle("2026-05-10T00:00:00", 107, 103, 104)], baseSettings);
 
     expect(result.summary.buyCount).toBe(5);
     expect(result.slots.slice(0, 5).every((slot) => slot.status === "HOLDING")).toBe(true);
+  });
+
+  it("skips buys when the candle range is wider than the max buy gap", () => {
+    const result = simulateSevenSplit([candle("2026-05-10T00:00:00", 112, 100, 101)], baseSettings);
+
+    expect(result.summary.buyCount).toBe(0);
+    expect(result.slots.every((slot) => slot.status === "EMPTY")).toBe(true);
   });
 
   it("does not sell a slot in the same candle where it was bought", () => {

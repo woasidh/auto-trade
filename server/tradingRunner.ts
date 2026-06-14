@@ -1,33 +1,45 @@
 import type { SqliteDatabase } from "./db";
-import { executePaperDecision } from "./paperBroker";
-import { createStrategySlots, evaluateSevenSplit } from "./strategyEngine";
+import { PaperBroker } from "./paperBroker";
+import { createStrategySlots, defaultMaxBuyPriceGap, evaluateSevenSplit } from "./strategyEngine";
 import {
   appendDecisionLog,
+  clearTradingPersistence,
   getRunnerState,
   getTradingPersistenceSnapshot,
+  listOrders,
   listSlots,
   listStrategies,
   saveSlot,
   saveStrategy,
   updateRunnerState
 } from "./tradingRepository";
-import type { SaveStrategyInput, Strategy, TradingPersistenceSnapshot } from "./tradingRepository";
+import type { SaveStrategyInput, Strategy, TradingOrder, TradingPersistenceSnapshot } from "./tradingRepository";
+import type { BrokerRegistry, TradingBroker } from "./tradingBroker";
 
 type PriceFetcher = (market: string) => Promise<number>;
 
 export interface CreatePaperStrategyInput extends Omit<SaveStrategyInput, "mode" | "status" | "slotBudget"> {
   slotBudget?: number;
+  slotPriceOffset?: number;
+  targetProfitPriceUnit?: number;
 }
 
 export class TradingRunner {
   private timer: NodeJS.Timeout | null = null;
   private tickInProgress = false;
+  private readonly brokers: BrokerRegistry;
 
   constructor(
     private readonly db: SqliteDatabase,
     private readonly fetchPrice: PriceFetcher,
-    private readonly intervalMs = 10_000
-  ) {}
+    private readonly intervalMs = 10_000,
+    brokers: BrokerRegistry = {}
+  ) {
+    this.brokers = {
+      PAPER: new PaperBroker(),
+      ...brokers
+    };
+  }
 
   async recover(): Promise<TradingPersistenceSnapshot> {
     const state = getRunnerState(this.db);
@@ -35,12 +47,14 @@ export class TradingRunner {
       updateRunnerState(this.db, {
         status: "RECOVERING",
         heartbeatAt: new Date().toISOString(),
+        lastObservedPrice: null,
+        lastObservedPriceAt: null,
         lastError: null
       });
       appendDecisionLog(this.db, {
         strategyId: state.activeStrategyId,
         action: "RECOVER",
-        reason: "server restarted with paper runner enabled"
+        reason: "server restarted with trading runner enabled"
       });
       await this.start(state.activeStrategyId);
     }
@@ -56,6 +70,8 @@ export class TradingRunner {
       status: "PAUSED",
       config: {
         ...(isRecord(input.config) ? input.config : {}),
+        ...(input.slotPriceOffset ? { slotPriceOffset: input.slotPriceOffset } : {}),
+        ...(input.targetProfitPriceUnit ? { targetProfitPriceUnit: input.targetProfitPriceUnit } : {}),
         mvp: true
       }
     });
@@ -76,6 +92,8 @@ export class TradingRunner {
       activeStrategyId: strategy.id,
       status: "PAUSED",
       autoTradingEnabled: false,
+      lastObservedPrice: null,
+      lastObservedPriceAt: null,
       lastError: null
     });
     appendDecisionLog(this.db, {
@@ -93,9 +111,7 @@ export class TradingRunner {
 
   async start(strategyId?: string): Promise<TradingPersistenceSnapshot> {
     const strategy = this.resolveStrategy(strategyId);
-    if (strategy.mode !== "PAPER") {
-      throw new Error("LIVE strategy execution is disabled in this MVP");
-    }
+    this.resolveBroker(strategy);
 
     const activeStrategy = saveStrategy(this.db, {
       ...strategy,
@@ -163,6 +179,11 @@ export class TradingRunner {
     return getTradingPersistenceSnapshot(this.db);
   }
 
+  resetTradingData(): TradingPersistenceSnapshot {
+    this.clearTimer();
+    return clearTradingPersistence(this.db);
+  }
+
   async tick(): Promise<TradingPersistenceSnapshot> {
     if (this.tickInProgress) {
       return getTradingPersistenceSnapshot(this.db);
@@ -176,18 +197,41 @@ export class TradingRunner {
       }
 
       const strategy = this.resolveStrategy(state.activeStrategyId);
-      if (strategy.mode !== "PAPER") {
-        throw new Error("LIVE strategy execution is disabled in this MVP");
-      }
+      const broker = this.resolveBroker(strategy);
 
       const currentPrice = await this.fetchPrice(strategy.market);
+      const previousPrice = state.lastObservedPrice ?? currentPrice;
+      const observedAt = new Date().toISOString();
       updateRunnerState(this.db, {
-        lastMarketPollAt: new Date().toISOString(),
-        heartbeatAt: new Date().toISOString()
+        lastMarketPollAt: observedAt,
+        lastObservedPrice: currentPrice,
+        lastObservedPriceAt: observedAt,
+        heartbeatAt: observedAt
       });
 
+      await broker.syncOpenOrders(this.db, strategy, currentPrice);
       const slots = listSlots(this.db, strategy.id);
-      const decisions = evaluateSevenSplit(strategy, slots, currentPrice);
+      const buyGap = Math.abs(currentPrice - previousPrice);
+      if (buyGap > defaultMaxBuyPriceGap) {
+        appendDecisionLog(this.db, {
+          strategyId: strategy.id,
+          market: strategy.market,
+          currentPrice,
+          action: "HOLD",
+          reason: `buy evaluation skipped because price moved ${buyGap} from ${previousPrice} to ${currentPrice}`,
+          snapshot: {
+            previousPrice,
+            currentPrice,
+            maxBuyPriceGap: defaultMaxBuyPriceGap
+          }
+        });
+      }
+
+      const decisions = evaluateSevenSplit(strategy, slots, currentPrice, {
+        previousPrice,
+        maxBuyPriceGap: defaultMaxBuyPriceGap,
+        retryBuySlotIds: getRetryBuySlotIds(listOrders(this.db, strategy.id))
+      });
       if (decisions.length === 0) {
         appendDecisionLog(this.db, {
           strategyId: strategy.id,
@@ -197,13 +241,14 @@ export class TradingRunner {
           reason: "no slot condition matched",
           snapshot: {
             emptySlots: slots.filter((slot) => slot.status === "EMPTY").length,
-            holdingSlots: slots.filter((slot) => slot.status === "HOLDING").length
+            holdingSlots: slots.filter((slot) => slot.status === "HOLDING").length,
+            pendingSlots: slots.filter((slot) => slot.status === "BUY_PENDING" || slot.status === "SELL_PENDING").length
           }
         });
       }
 
       for (const decision of decisions) {
-        executePaperDecision(this.db, strategy, decision, currentPrice);
+        await broker.executeDecision(this.db, strategy, decision, currentPrice);
       }
 
       updateRunnerState(this.db, {
@@ -274,6 +319,40 @@ export class TradingRunner {
 
     return strategy;
   }
+
+  private resolveBroker(strategy: Strategy): TradingBroker {
+    const broker = this.brokers[strategy.mode];
+    if (!broker) {
+      throw new Error(`${strategy.mode} strategy execution is disabled because no broker is configured`);
+    }
+
+    if (broker.mode !== strategy.mode) {
+      throw new Error(`Configured ${broker.mode} broker cannot execute ${strategy.mode} strategy`);
+    }
+
+    return broker;
+  }
+}
+
+function getRetryBuySlotIds(orders: TradingOrder[]): ReadonlySet<string> {
+  const latestBuyOrderBySlot = new Map<string, TradingOrder>();
+  for (const order of orders) {
+    if (order.side !== "BUY" || latestBuyOrderBySlot.has(order.slotId)) {
+      continue;
+    }
+
+    latestBuyOrderBySlot.set(order.slotId, order);
+  }
+
+  const retryStatuses = new Set<TradingOrder["status"]>(["CANCELED", "REJECTED", "FAILED"]);
+  const retrySlotIds = new Set<string>();
+  for (const [slotId, order] of latestBuyOrderBySlot) {
+    if (retryStatuses.has(order.status)) {
+      retrySlotIds.add(slotId);
+    }
+  }
+
+  return retrySlotIds;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -22,6 +22,7 @@ const routes: Array<{
 
 export default function App() {
   const [path, setPath] = useState<RoutePath>(normalizePath(window.location.pathname));
+  const [serverStartedAt, setServerStartedAt] = useState("");
   const activeRoute = useMemo(() => routes.find((route) => route.path === path) ?? routes[0], [path]);
 
   useEffect(() => {
@@ -33,6 +34,32 @@ export default function App() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadServerRuntime() {
+      try {
+        const response = await fetch("/api/health");
+        const payload = (await response.json()) as { server?: { startedAt?: string } };
+        if (isMounted) {
+          setServerStartedAt(payload.server?.startedAt ?? "");
+        }
+      } catch {
+        if (isMounted) {
+          setServerStartedAt("");
+        }
+      }
+    }
+
+    loadServerRuntime();
+    const timer = window.setInterval(loadServerRuntime, 5_000);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(timer);
+    };
+  }, []);
+
   function navigate(nextPath: RoutePath) {
     window.history.pushState(null, "", nextPath);
     setPath(nextPath);
@@ -41,9 +68,15 @@ export default function App() {
   return (
     <>
       <nav className="appNav" aria-label="주요 페이지">
-        <div className="appBrand">
-          <strong>Slice Trade</strong>
-          <span>Seven Split</span>
+        <div className="appBrandCluster">
+          <div className="appBrand">
+            <strong>Slice Trade</strong>
+            <span>Seven Split</span>
+          </div>
+          <div className="serverDeployTime">
+            <span>서버 배포 시간</span>
+            <strong>{formatOptionalDateTime(serverStartedAt)}</strong>
+          </div>
         </div>
         <div className="navTabs">
           {routes.map((route) => {
@@ -78,4 +111,24 @@ function normalizePath(path: string): RoutePath {
   }
 
   return "/";
+}
+
+function formatOptionalDateTime(value: string) {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  return date.toLocaleString("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
 }

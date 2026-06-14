@@ -5,6 +5,7 @@ import path from "node:path";
 import { openDatabase } from "./db";
 import {
   appendDecisionLog,
+  clearTradingPersistence,
   getRunnerState,
   getTradingPersistenceSnapshot,
   saveFill,
@@ -105,6 +106,8 @@ describe("tradingRepository", () => {
       activeStrategyId: strategy.id,
       autoTradingEnabled: true,
       heartbeatAt: "2026-06-01T00:00:00.000Z",
+      lastObservedPrice: 99,
+      lastObservedPriceAt: "2026-06-01T00:00:00.500Z",
       lastOrderSyncAt: "2026-06-01T00:00:01.000Z"
     });
 
@@ -123,7 +126,9 @@ describe("tradingRepository", () => {
     expect(snapshot.runnerState).toMatchObject({
       status: "RUNNING",
       activeStrategyId: "strategy-1",
-      autoTradingEnabled: true
+      autoTradingEnabled: true,
+      lastObservedPrice: 99,
+      lastObservedPriceAt: "2026-06-01T00:00:00.500Z"
     });
   });
 
@@ -172,6 +177,81 @@ describe("tradingRepository", () => {
         quantity: 1
       })
     ).toThrow();
+  });
+
+  it("clears trading test data and resets runner state", () => {
+    const db = createTestDatabase();
+    const strategy = saveStrategy(db, {
+      id: "strategy-1",
+      market: "KRW-BTC",
+      upperPrice: 100,
+      lowerPrice: 94,
+      slotCount: 7,
+      totalBudget: 700_000,
+      targetProfitRate: 0.01,
+      status: "ACTIVE"
+    });
+    const slot = saveSlot(db, {
+      id: "slot-1",
+      strategyId: strategy.id,
+      slotNumber: 1,
+      buyPrice: 100,
+      targetSellPrice: 101,
+      budget: 100_000
+    });
+    const order = saveOrder(db, {
+      id: "order-1",
+      strategyId: strategy.id,
+      slotId: slot.id,
+      clientOrderId: "reset-order-1",
+      market: "KRW-BTC",
+      side: "BUY",
+      orderType: "limit",
+      price: 100,
+      quantity: 1,
+      status: "FILLED"
+    });
+    saveFill(db, {
+      id: "fill-1",
+      orderId: order.id,
+      strategyId: strategy.id,
+      slotId: slot.id,
+      price: 100,
+      quantity: 1
+    });
+    appendDecisionLog(db, {
+      strategyId: strategy.id,
+      slotId: slot.id,
+      orderId: order.id,
+      action: "BUY",
+      reason: "test log"
+    });
+    updateRunnerState(db, {
+      status: "RUNNING",
+      activeStrategyId: strategy.id,
+      autoTradingEnabled: true,
+      killSwitchEnabled: true,
+      lastObservedPrice: 100,
+      lastObservedPriceAt: "2026-06-01T00:00:00.000Z",
+      lastError: "test error"
+    });
+
+    const snapshot = clearTradingPersistence(db);
+
+    expect(snapshot.strategies).toEqual([]);
+    expect(snapshot.slots).toEqual([]);
+    expect(snapshot.orders).toEqual([]);
+    expect(snapshot.fills).toEqual([]);
+    expect(snapshot.decisionLogs).toEqual([]);
+    expect(snapshot.runnerState).toMatchObject({
+      status: "STOPPED",
+      activeStrategyId: undefined,
+      autoTradingEnabled: false,
+      killSwitchEnabled: false,
+      lastObservedPrice: undefined,
+      lastObservedPriceAt: undefined,
+      lastError: undefined
+    });
   });
 });
 

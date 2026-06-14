@@ -88,6 +88,17 @@ data/slice-trade.sqlite
 
 SQLite DB는 이후 운영 설정과 자동매매 상태 저장 용도로 사용합니다. API 키, Secret Key, 계좌번호 같은 민감 정보는 DB에 저장하지 않습니다.
 
+## 자동매매 실행 구조
+
+- 전략 판단은 `strategyEngine`에서 수행하고, 주문 실행은 `TradingBroker` 인터페이스 뒤로 분리합니다.
+- 빗썸 HTTP/JWT 인증은 `BithumbClient`로 분리되어 API 라우트와 브로커가 같은 구현을 사용합니다.
+- `TradingRunner`는 전략 모드에 맞는 브로커만 호출합니다.
+- 현재 기본 등록 브로커는 `PaperBroker`뿐이며, 기존 paper 실행 흐름을 유지합니다.
+- `BithumbLiveBroker`는 주문 전 검증과 `/v2/orders` 요청 생성까지만 준비되어 있고, 실제 주문 POST와 주문 동기화는 아직 구현하지 않았습니다.
+- LIVE 게이트가 꺼져 있으면 `BithumbLiveBroker.executeDecision`은 빗썸 private API를 호출하지 않고 차단합니다.
+- 기존 수동 주문 테스트 엔드포인트도 `BITHUMB_LIVE_TRADING=true`, `BITHUMB_ORDER_SUBMISSION_ENABLED=true`, 요청 본문의 `confirmLive=true`가 모두 맞아야만 POST 주문을 보냅니다.
+- LIVE 전략은 명시적인 LIVE 브로커와 안전장치가 추가되기 전까지 자동 실행되지 않습니다.
+
 ## 데이터 위치
 
 현재 백테스트 데이터는 아래 경로에 있습니다.
@@ -139,7 +150,7 @@ GET http://localhost:5174/api/bithumb/candles/minutes?unit=1&market=KRW-BTC&coun
 - 슬롯당 자금: `총 투자금 / 생성된 슬롯 수`
 - 목표 매도가: `슬롯 매수가 + 목표 수익 단위`
 - 목표 순수익률: `(목표 매도가 * (1 - 수수료율)) / (슬롯 매수가 * (1 + 수수료율)) - 1`
-- 매수 조건: `candle.low <= slot.buyPrice`
+- 매수 조건: 캔들 가격 구간이 슬롯 매수가를 통과하거나 터치할 때, 즉 `candle.low <= slot.buyPrice <= candle.high`
 - 매도 조건: `candle.high >= slot.targetSellPrice`
 - 같은 캔들에서 신규 매수된 슬롯은 그 캔들에서 매도하지 않습니다.
 - 기존 보유 슬롯의 매도는 먼저 평가합니다.

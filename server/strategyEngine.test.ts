@@ -28,13 +28,29 @@ describe("createStrategySlots", () => {
     expect(slots.map((slot) => slot.buyPrice)).toEqual([107, 106, 105, 104, 103, 102, 101]);
     expect(slots[0].targetSellPrice).toBeCloseTo(108.07);
   });
+
+  it("creates slots from a configured price interval", () => {
+    const slots = createStrategySlots({
+      ...strategy,
+      upperPrice: 1480,
+      lowerPrice: 1460,
+      slotCount: 8,
+      targetProfitRate: 0.005,
+      config: { slotPriceOffset: 3, targetProfitPriceUnit: 3 }
+    });
+
+    expect(slots).toHaveLength(8);
+    expect(slots.map((slot) => slot.buyPrice)).toEqual([1480, 1477, 1474, 1471, 1468, 1465, 1462, 1460]);
+    expect(slots.map((slot) => slot.targetSellPrice)).toEqual([1483, 1480, 1477, 1474, 1471, 1468, 1465, 1463]);
+    expect(slots.every((slot) => slot.budget === 100_000)).toBe(true);
+  });
 });
 
 describe("evaluateSevenSplit", () => {
-  it("buys all empty slots crossed by a gap down", () => {
+  it("buys all empty slots touched by the observed price move", () => {
     const slots = createSlots();
 
-    const decisions = evaluateSevenSplit(strategy, slots, 103);
+    const decisions = evaluateSevenSplit(strategy, slots, 103, { previousPrice: 107 });
 
     expect(decisions.map((decision) => `${decision.action}:${decision.slot.slotNumber}`)).toEqual([
       "BUY:1",
@@ -43,6 +59,45 @@ describe("evaluateSevenSplit", () => {
       "BUY:4",
       "BUY:5"
     ]);
+  });
+
+  it("buys a slot touched by an upward move inside the band", () => {
+    const slots = createSlots();
+
+    const decisions = evaluateSevenSplit(strategy, slots, 104, { previousPrice: 102 });
+
+    expect(decisions.map((decision) => `${decision.action}:${decision.slot.slotNumber}`)).toEqual([
+      "BUY:4",
+      "BUY:5",
+      "BUY:6"
+    ]);
+  });
+
+  it("only buys the exact matching slot when started without a previous price", () => {
+    const slots = createSlots();
+
+    const decisions = evaluateSevenSplit(strategy, slots, 103);
+
+    expect(decisions.map((decision) => `${decision.action}:${decision.slot.slotNumber}`)).toEqual(["BUY:5"]);
+  });
+
+  it("skips buys when the observed price gap is too large", () => {
+    const slots = createSlots();
+
+    const decisions = evaluateSevenSplit(strategy, slots, 95, { previousPrice: 107, maxBuyPriceGap: 10 });
+
+    expect(decisions).toEqual([]);
+  });
+
+  it("allows retry buys after the latest buy order failed or was canceled", () => {
+    const slots = createSlots();
+
+    const decisions = evaluateSevenSplit(strategy, slots, 102, {
+      previousPrice: 101,
+      retryBuySlotIds: new Set(["slot-3"])
+    });
+
+    expect(decisions.some((decision) => decision.action === "BUY" && decision.slot.slotNumber === 3)).toBe(true);
   });
 
   it("sells holding slots before considering buys", () => {
@@ -58,7 +113,7 @@ describe("evaluateSevenSplit", () => {
         : slot
     );
 
-    const decisions = evaluateSevenSplit(strategy, slots, 101);
+    const decisions = evaluateSevenSplit(strategy, slots, 101, { previousPrice: 102 });
 
     expect(decisions[0]).toMatchObject({ action: "SELL", slot: { slotNumber: 1 } });
     expect(decisions.some((decision) => decision.action === "BUY" && decision.slot.slotNumber === 7)).toBe(true);

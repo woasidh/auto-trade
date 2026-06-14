@@ -565,6 +565,18 @@ Authorization: Bearer {JWT}
 6. `GET /v1/order`: 주문 후 체결 상세 확인
 7. `GET /v1/orders`: 재시작 또는 장애 복구 시 주문 목록 동기화
 
+## 실행 브로커 경계
+
+자동매매 러너는 전략 판단 결과를 거래소 API에 직접 전달하지 않는다. 주문 실행은 `TradingBroker` 인터페이스 뒤에서 처리한다.
+
+- `PaperBroker`: 현재 기본 실행 브로커. paper 주문 접수, 지연 체결, 취소, 내부 상태 동기화를 담당한다.
+- `BithumbClient`: Public/Private HTTP 호출, JWT 생성, query hash 생성을 담당한다. API 라우트와 LIVE 브로커가 같은 클라이언트를 사용한다.
+- `BithumbLiveBroker`: 빗썸 실거래 연동용 브로커. 현재는 주문 전 검증과 `/v2/orders` 요청 생성까지만 수행하며, 실주문 생성, 주문 동기화, 취소, 계좌 대조 구현 전까지 기본 러너에 등록하지 않는다.
+- LIVE 전략은 브로커 등록, 환경 변수 게이트, 주문 전 검증, kill switch가 모두 준비된 뒤에만 실행 대상으로 연다.
+- LIVE 게이트가 꺼져 있으면 `executeDecision`은 빗썸 private API를 호출하지 않고 차단한다.
+- 수동 주문 테스트 엔드포인트도 `BITHUMB_LIVE_TRADING=true`, `BITHUMB_ORDER_SUBMISSION_ENABLED=true`, 요청 본문의 `confirmLive=true`를 모두 요구한다. 하나라도 빠지면 dry-run 응답만 반환한다.
+- 브로커는 주문 요청 전후의 슬롯/주문/체결 저장과 decision log 기록 책임을 함께 가진다.
+
 ## 내부 데이터 매핑
 
 세븐스플릿 슬롯과 빗썸 조회 응답은 다음처럼 매핑한다.

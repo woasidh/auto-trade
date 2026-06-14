@@ -19,11 +19,11 @@ export const defaultAppSettings: AppSettings = {
 
 export const defaultTradingSettings = {
   market: "KRW-USDT",
-  upperPrice: 1480,
-  lowerPrice: 1460,
-  slotCount: 7,
-  slotBudget: 100_000,
-  targetProfitPercent: 0.5,
+  upperPrice: 1500,
+  lowerPrice: 1450,
+  slotPriceOffset: 2,
+  slotBudget: 1_000_000,
+  targetProfitPriceUnit: 2,
   feePercent: 0.04
 } as const;
 

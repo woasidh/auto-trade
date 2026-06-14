@@ -107,6 +107,8 @@ export interface RunnerState {
   lastMarketPollAt?: string;
   lastOrderSyncAt?: string;
   lastReconcileAt?: string;
+  lastObservedPrice?: number;
+  lastObservedPriceAt?: string;
   lastError?: string;
   updatedAt: string;
 }
@@ -218,6 +220,8 @@ interface RunnerStateRow {
   last_market_poll_at: string | null;
   last_order_sync_at: string | null;
   last_reconcile_at: string | null;
+  last_observed_price: number | null;
+  last_observed_price_at: string | null;
   last_error: string | null;
   updated_at: string;
 }
@@ -312,6 +316,8 @@ export interface UpdateRunnerStateInput {
   lastMarketPollAt?: string | null;
   lastOrderSyncAt?: string | null;
   lastReconcileAt?: string | null;
+  lastObservedPrice?: number | null;
+  lastObservedPriceAt?: string | null;
   lastError?: string | null;
 }
 
@@ -352,8 +358,10 @@ export function listFills(db: SqliteDatabase, strategyId?: string): TradingFill[
   return (rows as FillRow[]).map(rowToFill);
 }
 
-export function listDecisionLogs(db: SqliteDatabase, limit = 100): DecisionLog[] {
-  const rows = db.prepare("SELECT * FROM decision_logs ORDER BY created_at DESC, id DESC LIMIT ?").all(clampLimit(limit)) as DecisionLogRow[];
+export function listDecisionLogs(db: SqliteDatabase, limit = 100, offset = 0): DecisionLog[] {
+  const rows = db
+    .prepare("SELECT * FROM decision_logs ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?")
+    .all(clampLimit(limit), clampOffset(offset)) as DecisionLogRow[];
   return rows.map(rowToDecisionLog);
 }
 
@@ -716,6 +724,8 @@ export function updateRunnerState(db: SqliteDatabase, input: UpdateRunnerStateIn
     lastMarketPollAt: input.lastMarketPollAt === undefined ? current.lastMarketPollAt ?? null : input.lastMarketPollAt,
     lastOrderSyncAt: input.lastOrderSyncAt === undefined ? current.lastOrderSyncAt ?? null : input.lastOrderSyncAt,
     lastReconcileAt: input.lastReconcileAt === undefined ? current.lastReconcileAt ?? null : input.lastReconcileAt,
+    lastObservedPrice: input.lastObservedPrice === undefined ? current.lastObservedPrice ?? null : input.lastObservedPrice,
+    lastObservedPriceAt: input.lastObservedPriceAt === undefined ? current.lastObservedPriceAt ?? null : input.lastObservedPriceAt,
     lastError: input.lastError === undefined ? current.lastError ?? null : input.lastError,
     updatedAt: new Date().toISOString()
   };
@@ -731,6 +741,8 @@ export function updateRunnerState(db: SqliteDatabase, input: UpdateRunnerStateIn
       last_market_poll_at = @lastMarketPollAt,
       last_order_sync_at = @lastOrderSyncAt,
       last_reconcile_at = @lastReconcileAt,
+      last_observed_price = @lastObservedPrice,
+      last_observed_price_at = @lastObservedPriceAt,
       last_error = @lastError,
       updated_at = @updatedAt
     WHERE id = 1
@@ -741,6 +753,39 @@ export function updateRunnerState(db: SqliteDatabase, input: UpdateRunnerStateIn
   });
 
   return getRunnerState(db);
+}
+
+export function clearTradingPersistence(db: SqliteDatabase): TradingPersistenceSnapshot {
+  const clear = db.transaction(() => {
+    const now = new Date().toISOString();
+    ensureRunnerState(db);
+    db.prepare("DELETE FROM decision_logs").run();
+    db.prepare("DELETE FROM fills").run();
+    db.prepare("DELETE FROM orders").run();
+    db.prepare("DELETE FROM slots").run();
+    db.prepare("DELETE FROM strategies").run();
+    db.prepare("DELETE FROM sqlite_sequence WHERE name = 'decision_logs'").run();
+    db.prepare(`
+      UPDATE runner_state SET
+        status = 'STOPPED',
+        active_strategy_id = NULL,
+        auto_trading_enabled = 0,
+        kill_switch_enabled = 0,
+        heartbeat_at = @now,
+        last_tick_at = NULL,
+        last_market_poll_at = NULL,
+        last_order_sync_at = NULL,
+        last_reconcile_at = NULL,
+        last_observed_price = NULL,
+        last_observed_price_at = NULL,
+        last_error = NULL,
+        updated_at = @now
+      WHERE id = 1
+    `).run({ now });
+  });
+
+  clear();
+  return getTradingPersistenceSnapshot(db);
 }
 
 function getStrategyById(db: SqliteDatabase, id: string): Strategy {
@@ -907,6 +952,8 @@ function rowToRunnerState(row: RunnerStateRow): RunnerState {
     lastMarketPollAt: row.last_market_poll_at ?? undefined,
     lastOrderSyncAt: row.last_order_sync_at ?? undefined,
     lastReconcileAt: row.last_reconcile_at ?? undefined,
+    lastObservedPrice: row.last_observed_price ?? undefined,
+    lastObservedPriceAt: row.last_observed_price_at ?? undefined,
     lastError: row.last_error ?? undefined,
     updatedAt: row.updated_at
   };
@@ -919,6 +966,10 @@ function normalizeMarket(value: string): string {
   }
 
   return market;
+}
+
+function clampOffset(value: number): number {
+  return Math.max(0, Math.floor(Number.isFinite(value) ? value : 0));
 }
 
 function jsonToText(value: unknown): string {

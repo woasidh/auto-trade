@@ -1,5 +1,4 @@
 import express from "express";
-import { createHash, createHmac, randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,9 +12,11 @@ import {
 import { defaultAppSettings, normalizeAppSettings, supportedMinuteUnits } from "../src/shared/settings";
 import type { DatasetResponse, RawBithumbCandle } from "../src/shared/types";
 import { openDatabase } from "./db";
+import { BithumbClient, bithumbApiBaseUrl } from "./bithumbClient";
 import { getAppSettings, saveAppSettings, seedAppSettingsIfMissing, settingsStorage } from "./settingsRepository";
+import { createStrategyBuyPrices } from "./strategyEngine";
 import { TradingRunner } from "./tradingRunner";
-import { getTradingPersistenceSnapshot } from "./tradingRepository";
+import { getTradingPersistenceSnapshot, listDecisionLogs } from "./tradingRepository";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -23,9 +24,15 @@ const dataRoot = path.join(rootDir, "data", "bithumb");
 const settingsDbFilePath = path.join(rootDir, "data", "slice-trade.sqlite");
 const legacySettingsFilePath = path.join(rootDir, "data", "settings", "app-settings.json");
 const localEnvFilePath = path.join(rootDir, ".env.local");
-const bithumbApiBaseUrl = "https://api.bithumb.com";
 const port = Number(process.env.API_PORT ?? 5174);
+const serverStartedAt = new Date().toISOString();
 const db = openDatabase(settingsDbFilePath);
+const bithumbClient = new BithumbClient({
+  credentialsProvider: async () => {
+    await loadLocalEnv();
+    return getBithumbCredentials();
+  }
+});
 const tradingRunner = new TradingRunner(db, fetchBithumbTradePrice);
 
 const app = express();
@@ -37,7 +44,7 @@ await loadLocalEnv();
 await tradingRunner.recover();
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true });
+  res.json({ ok: true, server: getServerRuntime() });
 });
 
 app.get("/api/settings", async (_req, res, next) => {
@@ -66,7 +73,18 @@ app.put("/api/settings", async (req, res, next) => {
 
 app.get("/api/trading/persistence", (_req, res, next) => {
   try {
-    res.json(getTradingPersistenceSnapshot(db));
+    res.json(getTradingSnapshot());
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/trading/decision-logs", (req, res, next) => {
+  try {
+    const limit = clampInteger(Number(req.query.limit ?? 40), 1, 100);
+    const offset = Math.max(0, Math.floor(Number(req.query.offset ?? 0)));
+    const logs = listDecisionLogs(db, limit, offset);
+    res.json(withServerRuntime({ logs, nextOffset: offset + logs.length, hasMore: logs.length === limit }));
   } catch (error) {
     next(error);
   }
@@ -80,7 +98,7 @@ app.post("/api/trading/strategy", (req, res, next) => {
       return;
     }
 
-    res.json(tradingRunner.createPaperStrategy(input.value));
+    res.json(withServerRuntime(tradingRunner.createPaperStrategy(input.value)));
   } catch (error) {
     next(error);
   }
@@ -90,7 +108,7 @@ app.post("/api/trading/start", async (req, res, next) => {
   try {
     const body = isRecord(req.body) ? req.body : {};
     const strategyId = typeof body.strategyId === "string" && body.strategyId.trim() ? body.strategyId.trim() : undefined;
-    res.json(await tradingRunner.start(strategyId));
+    res.json(withServerRuntime(await tradingRunner.start(strategyId)));
   } catch (error) {
     next(error);
   }
@@ -98,7 +116,7 @@ app.post("/api/trading/start", async (req, res, next) => {
 
 app.post("/api/trading/pause", (_req, res, next) => {
   try {
-    res.json(tradingRunner.pause());
+    res.json(withServerRuntime(tradingRunner.pause()));
   } catch (error) {
     next(error);
   }
@@ -106,7 +124,7 @@ app.post("/api/trading/pause", (_req, res, next) => {
 
 app.post("/api/trading/stop", (_req, res, next) => {
   try {
-    res.json(tradingRunner.stop());
+    res.json(withServerRuntime(tradingRunner.stop()));
   } catch (error) {
     next(error);
   }
@@ -114,7 +132,15 @@ app.post("/api/trading/stop", (_req, res, next) => {
 
 app.post("/api/trading/tick", async (_req, res, next) => {
   try {
-    res.json(await tradingRunner.tick());
+    res.json(withServerRuntime(await tradingRunner.tick()));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/trading/reset", (_req, res, next) => {
+  try {
+    res.json(withServerRuntime(tradingRunner.resetTradingData()));
   } catch (error) {
     next(error);
   }
@@ -197,7 +223,7 @@ app.get("/api/bithumb/markets", async (req, res, next) => {
     }
 
     const endpoint = `/v1/market/all${params.size > 0 ? `?${params.toString()}` : ""}`;
-    const response = await requestBithumb(endpoint);
+    const response = await bithumbClient.requestPublic(endpoint);
     res.status(response.status).json(response.body);
   } catch (error) {
     next(error);
@@ -213,7 +239,7 @@ app.get("/api/bithumb/ticker", async (req, res, next) => {
     }
 
     const endpoint = `/v1/ticker?${new URLSearchParams({ markets }).toString()}`;
-    const response = await requestBithumb(endpoint);
+    const response = await bithumbClient.requestPublic(endpoint);
     res.status(response.status).json(response.body);
   } catch (error) {
     next(error);
@@ -229,7 +255,7 @@ app.get("/api/bithumb/orderbook", async (req, res, next) => {
     }
 
     const endpoint = `/v1/orderbook?${new URLSearchParams({ markets }).toString()}`;
-    const response = await requestBithumb(endpoint);
+    const response = await bithumbClient.requestPublic(endpoint);
     res.status(response.status).json(response.body);
   } catch (error) {
     next(error);
@@ -254,7 +280,7 @@ app.get("/api/bithumb/candles/minutes", async (req, res, next) => {
     }
 
     const endpoint = `/v1/candles/minutes/${unit}?${params.toString()}`;
-    const response = await requestBithumb(endpoint);
+    const response = await bithumbClient.requestPublic(endpoint);
     res.status(response.status).json(response.body);
   } catch (error) {
     next(error);
@@ -269,6 +295,7 @@ app.get("/api/bithumb/private/status", async (_req, res, next) => {
       configured: Boolean(accessKey && getBithumbSecretKey()),
       accessKey: maskSecret(accessKey),
       liveTrading: isLiveTradingEnabled(),
+      orderSubmission: isOrderSubmissionEnabled(),
       envFilePath: path.relative(rootDir, localEnvFilePath)
     });
   } catch (error) {
@@ -291,7 +318,8 @@ app.put("/api/bithumb/private/credentials", async (req, res, next) => {
     await writeLocalEnv({
       BITHUMB_ACCESS_KEY: accessKey,
       BITHUMB_SECRET_KEY: secretKey,
-      BITHUMB_LIVE_TRADING: liveTrading ? "true" : "false"
+      BITHUMB_LIVE_TRADING: liveTrading ? "true" : "false",
+      BITHUMB_ORDER_SUBMISSION_ENABLED: "false"
     });
     await loadLocalEnv();
 
@@ -299,6 +327,7 @@ app.put("/api/bithumb/private/credentials", async (req, res, next) => {
       configured: true,
       accessKey: maskSecret(accessKey),
       liveTrading: isLiveTradingEnabled(),
+      orderSubmission: isOrderSubmissionEnabled(),
       envFilePath: path.relative(rootDir, localEnvFilePath)
     });
   } catch (error) {
@@ -308,7 +337,7 @@ app.put("/api/bithumb/private/credentials", async (req, res, next) => {
 
 app.get("/api/bithumb/private/accounts", async (_req, res, next) => {
   try {
-    const response = await requestBithumbPrivate({ method: "GET", endpoint: "/v1/accounts" });
+    const response = await bithumbClient.requestPrivate({ method: "GET", endpoint: "/v1/accounts" });
     res.status(response.status).json(response.body);
   } catch (error) {
     next(error);
@@ -323,7 +352,7 @@ app.get("/api/bithumb/private/orders/chance", async (req, res, next) => {
       return;
     }
 
-    const response = await requestBithumbPrivate({
+    const response = await bithumbClient.requestPrivate({
       method: "GET",
       endpoint: "/v1/orders/chance",
       params: { market }
@@ -344,6 +373,7 @@ app.post("/api/bithumb/private/orders", async (req, res, next) => {
     }
 
     const liveTrading = isLiveTradingEnabled();
+    const orderSubmission = isOrderSubmissionEnabled();
     const confirmLive = isRecord(req.body) && req.body.confirmLive === true;
     const clientOrderId = order.value.client_order_id ?? `slice-${Date.now()}`;
     const requestBody = {
@@ -351,18 +381,19 @@ app.post("/api/bithumb/private/orders", async (req, res, next) => {
       client_order_id: clientOrderId
     };
 
-    if (!liveTrading || !confirmLive) {
+    if (!liveTrading || !orderSubmission || !confirmLive) {
       res.json({
         dryRun: true,
         liveTrading,
+        orderSubmission,
         endpoint: `${bithumbApiBaseUrl}/v2/orders`,
         request: requestBody,
-        reason: liveTrading ? "confirmLive must be true" : "BITHUMB_LIVE_TRADING is not true"
+        reason: getOrderDryRunReason({ liveTrading, orderSubmission, confirmLive })
       });
       return;
     }
 
-    const response = await requestBithumbPrivate({
+    const response = await bithumbClient.requestPrivate({
       method: "POST",
       endpoint: "/v2/orders",
       body: requestBody
@@ -432,122 +463,13 @@ async function readLocalEnvValues() {
   }
 }
 
-async function requestBithumb(endpoint: string) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10_000);
-
-  try {
-    const response = await fetch(`${bithumbApiBaseUrl}${endpoint}`, {
-      headers: { accept: "application/json" },
-      signal: controller.signal
-    });
-    const contentType = response.headers.get("content-type") ?? "";
-    const data = contentType.includes("application/json") ? await response.json() : await response.text();
-
-    return {
-      status: response.status,
-      body: response.ok
-        ? { endpoint: `${bithumbApiBaseUrl}${endpoint}`, data }
-        : { endpoint: `${bithumbApiBaseUrl}${endpoint}`, error: "Bithumb API request failed", data }
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 async function fetchBithumbTradePrice(market: string): Promise<number> {
   const normalizedMarket = normalizeMarket(market);
   if (!normalizedMarket) {
     throw new Error("Invalid market");
   }
 
-  const response = await requestBithumb(`/v1/ticker?${new URLSearchParams({ markets: normalizedMarket }).toString()}`);
-  if (response.status < 200 || response.status >= 300) {
-    throw new Error("Bithumb ticker request failed");
-  }
-
-  const data = isRecord(response.body) ? response.body.data : undefined;
-  const ticker = Array.isArray(data) ? data[0] : undefined;
-  const tradePrice = isRecord(ticker) ? Number(ticker.trade_price) : NaN;
-  if (!Number.isFinite(tradePrice) || tradePrice <= 0) {
-    throw new Error("Bithumb ticker response did not include trade_price");
-  }
-
-  return tradePrice;
-}
-
-async function requestBithumbPrivate({
-  method,
-  endpoint,
-  params,
-  body
-}: {
-  method: "GET" | "POST" | "DELETE";
-  endpoint: string;
-  params?: Record<string, string>;
-  body?: Record<string, string>;
-}) {
-  await loadLocalEnv();
-  const credentials = getBithumbCredentials();
-  if (!credentials) {
-    return {
-      status: 401,
-      body: { error: "Bithumb credentials are not configured" }
-    };
-  }
-
-  const query = params ? new URLSearchParams(params).toString() : "";
-  const requestPath = `${endpoint}${query ? `?${query}` : ""}`;
-  const hashSource = body ? encodeParams(body) : query;
-  const token = createBithumbJwt(credentials.accessKey, credentials.secretKey, hashSource);
-  const response = await fetch(`${bithumbApiBaseUrl}${requestPath}`, {
-    method,
-    headers: {
-      accept: "application/json",
-      authorization: `Bearer ${token}`,
-      ...(body ? { "content-type": "application/json" } : {})
-    },
-    body: body ? JSON.stringify(body) : undefined
-  });
-  const contentType = response.headers.get("content-type") ?? "";
-  const data = contentType.includes("application/json") ? await response.json() : await response.text();
-
-  return {
-    status: response.status,
-    body: response.ok
-      ? { endpoint: `${bithumbApiBaseUrl}${requestPath}`, data }
-      : { endpoint: `${bithumbApiBaseUrl}${requestPath}`, error: "Bithumb private API request failed", data }
-  };
-}
-
-function createBithumbJwt(accessKey: string, secretKey: string, hashSource: string) {
-  const payload: Record<string, string | number> = {
-    access_key: accessKey,
-    nonce: randomUUID(),
-    timestamp: Date.now()
-  };
-
-  if (hashSource) {
-    payload.query_hash = createHash("sha512").update(hashSource, "utf8").digest("hex");
-    payload.query_hash_alg = "SHA512";
-  }
-
-  const header = { alg: "HS256", typ: "JWT" };
-  const encodedHeader = base64UrlEncode(JSON.stringify(header));
-  const encodedPayload = base64UrlEncode(JSON.stringify(payload));
-  const signature = createHmac("sha256", secretKey).update(`${encodedHeader}.${encodedPayload}`).digest("base64url");
-  return `${encodedHeader}.${encodedPayload}.${signature}`;
-}
-
-function encodeParams(params: Record<string, string>) {
-  return Object.entries(params)
-    .filter(([, value]) => value !== "")
-    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
-    .join("&");
-}
-
-function base64UrlEncode(value: string) {
-  return Buffer.from(value).toString("base64url");
+  return bithumbClient.fetchTradePrice(normalizedMarket);
 }
 
 function normalizeMarkets(value: string) {
@@ -562,6 +484,23 @@ function normalizeMarkets(value: string) {
 function normalizeMarket(value: string) {
   const market = value.trim().toUpperCase();
   return /^[A-Z0-9]+-[A-Z0-9]+$/.test(market) ? market : "";
+}
+
+function getTradingSnapshot() {
+  return withServerRuntime(getTradingPersistenceSnapshot(db));
+}
+
+function withServerRuntime<T extends object>(payload: T): T & { server: { startedAt: string } } {
+  return {
+    ...payload,
+    server: getServerRuntime()
+  };
+}
+
+function getServerRuntime() {
+  return {
+    startedAt: serverStartedAt
+  };
 }
 
 function clampInteger(value: number, min: number, max: number) {
@@ -584,6 +523,34 @@ function getBithumbSecretKey() {
 
 function isLiveTradingEnabled() {
   return process.env.BITHUMB_LIVE_TRADING === "true";
+}
+
+function isOrderSubmissionEnabled() {
+  return process.env.BITHUMB_ORDER_SUBMISSION_ENABLED === "true";
+}
+
+function getOrderDryRunReason({
+  liveTrading,
+  orderSubmission,
+  confirmLive
+}: {
+  liveTrading: boolean;
+  orderSubmission: boolean;
+  confirmLive: boolean;
+}) {
+  if (!liveTrading) {
+    return "BITHUMB_LIVE_TRADING is not true";
+  }
+
+  if (!orderSubmission) {
+    return "BITHUMB_ORDER_SUBMISSION_ENABLED is not true";
+  }
+
+  if (!confirmLive) {
+    return "confirmLive must be true";
+  }
+
+  return "order dry-run gate is active";
 }
 
 function maskSecret(value: string) {
@@ -701,6 +668,8 @@ function normalizePaperStrategyRequest(value: unknown):
         slotCount: number;
         totalBudget: number;
         slotBudget: number;
+        slotPriceOffset?: number;
+        targetProfitPriceUnit?: number;
         targetProfitRate: number;
         feeRate: number;
         slippageRate: number;
@@ -716,11 +685,17 @@ function normalizePaperStrategyRequest(value: unknown):
   const market = normalizeMarket(String(body.market ?? ""));
   const upperPrice = positiveNumber(body.upperPrice);
   const lowerPrice = positiveNumber(body.lowerPrice);
-  const slotCount = clampInteger(Number(body.slotCount ?? 7), 2, 20);
+  const rawSlotPriceOffset = positiveNumber(body.slotPriceOffset);
+  const slotPriceOffset = Number.isFinite(rawSlotPriceOffset) ? clampInteger(rawSlotPriceOffset, 1, Number.MAX_SAFE_INTEGER) : undefined;
+  let slotCount = clampInteger(Number(body.slotCount ?? 7), 2, 20);
   const slotBudget = positiveNumber(body.slotBudget);
-  const totalBudget = Number.isFinite(slotBudget) ? slotBudget * slotCount : positiveNumber(body.totalBudget);
-  const targetProfitRate =
-    body.targetProfitRate !== undefined
+  const rawTargetProfitPriceUnit = positiveNumber(body.targetProfitPriceUnit);
+  const targetProfitPriceUnit = Number.isFinite(rawTargetProfitPriceUnit)
+    ? clampInteger(rawTargetProfitPriceUnit, 1, Number.MAX_SAFE_INTEGER)
+    : undefined;
+  const targetProfitRate = targetProfitPriceUnit
+    ? targetProfitPriceUnit / upperPrice
+    : body.targetProfitRate !== undefined
       ? nonNegativeNumber(body.targetProfitRate)
       : nonNegativeNumber(body.targetProfitPercent ?? 0.5) / 100;
   const feeRate =
@@ -739,6 +714,14 @@ function normalizePaperStrategyRequest(value: unknown):
   if (!Number.isFinite(upperPrice) || !Number.isFinite(lowerPrice) || upperPrice <= lowerPrice) {
     return { ok: false, error: "Upper price must be greater than lower price" };
   }
+
+  try {
+    slotCount = createStrategyBuyPrices({ upperPrice, lowerPrice, slotCount, slotPriceOffset }).length;
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "Invalid slot settings" };
+  }
+
+  const totalBudget = Number.isFinite(slotBudget) ? slotBudget * slotCount : positiveNumber(body.totalBudget);
 
   if (!Number.isFinite(totalBudget) || totalBudget <= 0) {
     return { ok: false, error: "Total budget must be greater than 0" };
@@ -765,6 +748,8 @@ function normalizePaperStrategyRequest(value: unknown):
       slotCount,
       totalBudget,
       slotBudget: Number.isFinite(slotBudget) ? slotBudget : totalBudget / slotCount,
+      ...(slotPriceOffset ? { slotPriceOffset } : {}),
+      ...(targetProfitPriceUnit ? { targetProfitPriceUnit } : {}),
       targetProfitRate,
       feeRate,
       slippageRate

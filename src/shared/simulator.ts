@@ -20,6 +20,7 @@ interface MutableSlot extends SlotConfig {
 }
 
 const integerUnitTolerance = 1e-9;
+export const defaultSimulationMaxBuyPriceGap = 10;
 
 export function createSlots(settings: SimulationSettings): SlotConfig[] {
   validateSettings(settings);
@@ -114,12 +115,13 @@ export function simulateSevenSplit(candles: Candle[], settings: SimulationSettin
       }
     }
 
+    const canEvaluateBuys = candle.high - candle.low <= defaultSimulationMaxBuyPriceGap;
     for (const slot of slots) {
-      if (slot.status !== "EMPTY" || soldThisCandle.has(slot.slotNumber)) {
+      if (slot.status !== "EMPTY" || soldThisCandle.has(slot.slotNumber) || !canEvaluateBuys) {
         continue;
       }
 
-      if (candle.low <= slot.buyPrice) {
+      if (candle.low <= slot.buyPrice && candle.high >= slot.buyPrice) {
         const grossAmount = slot.budget / (1 + settings.feeRate);
         const fee = slot.budget - grossAmount;
         const quantity = grossAmount / slot.buyPrice;

@@ -17,6 +17,7 @@ select {
 
 button {
   cursor: pointer;
+  touch-action: manipulation;
 }
 
 .appShell {
@@ -38,9 +39,17 @@ button {
   padding: 0 24px;
 }
 
+.appBrandCluster {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
 .appBrand {
   display: grid;
   gap: 2px;
+  flex: 0 0 auto;
 }
 
 .appBrand strong {
@@ -53,9 +62,31 @@ button {
   font-size: 12px;
 }
 
+.serverDeployTime {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  border-left: 1px solid #d9e0e8;
+  padding-left: 14px;
+}
+
+.serverDeployTime span {
+  color: #667085;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.serverDeployTime strong {
+  color: #344054;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .navTabs {
   display: flex;
   gap: 6px;
+  min-width: 0;
 }
 
 .navTabs button {
@@ -136,6 +167,7 @@ h2 {
   display: block;
   margin-top: 3px;
   font-size: 16px;
+  overflow-wrap: anywhere;
 }
 
 .metric.good strong,
@@ -175,6 +207,7 @@ h2 {
 .controlPanel,
 .chartPanel,
 .resultsPanel {
+  min-width: 0;
   background: #ffffff;
   border: 1px solid #d9e0e8;
   border-radius: 8px;
@@ -215,7 +248,7 @@ h2 {
 input,
 select {
   width: 100%;
-  height: 36px;
+  min-height: 40px;
   border: 1px solid #cbd5e1;
   border-radius: 6px;
   background: #ffffff;
@@ -309,14 +342,16 @@ select:disabled {
 
 .primaryButton,
 .ghostButton,
-.secondaryButton {
+.secondaryButton,
+.dangerButton {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  height: 38px;
+  min-height: 42px;
   border-radius: 8px;
   border: 1px solid transparent;
+  padding: 0 12px;
 }
 
 .primaryButton {
@@ -332,7 +367,8 @@ select:disabled {
 }
 
 .ghostButton {
-  width: 42px;
+  flex: 0 0 44px;
+  width: 44px;
   background: #ffffff;
   border-color: #cbd5e1;
   color: #475467;
@@ -385,6 +421,7 @@ select:disabled {
 
 .slotPreview {
   margin-top: 10px;
+  overflow: auto;
 }
 
 .slotPreview h2 {
@@ -722,7 +759,17 @@ dd {
 }
 
 .dangerButton {
+  width: 100%;
   background: #b42318;
+  border-color: #b42318;
+  color: #ffffff;
+  font-weight: 750;
+}
+
+.dangerButton:disabled {
+  cursor: not-allowed;
+  background: #f3b2aa;
+  border-color: #f3b2aa;
 }
 
 .dashboardActions {
@@ -756,12 +803,150 @@ dd {
   grid-column: 1 / -1;
 }
 
+.tradingChartPanel {
+  padding-bottom: 12px;
+}
+
+.tradingChartPanel .chartSurface {
+  min-height: 420px;
+}
+
 .tableScroller {
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .assetTable {
   min-width: 980px;
+}
+
+.tradingSlotTable {
+  min-width: 980px;
+}
+
+.cycleHistoryTable {
+  min-width: 1340px;
+}
+
+.cycleDetailTable {
+  min-width: 980px;
+}
+
+.cycleDetailTable td:last-child {
+  max-width: 240px;
+  overflow-wrap: anywhere;
+}
+
+.cycleHistoryTable th:nth-child(3),
+.cycleHistoryTable th:nth-child(4),
+.cycleHistoryTable th:nth-child(5),
+.cycleHistoryTable th:nth-child(6),
+.cycleHistoryTable td:nth-child(3),
+.cycleHistoryTable td:nth-child(4),
+.cycleHistoryTable td:nth-child(5),
+.cycleHistoryTable td:nth-child(6),
+.cycleDetailTable th:nth-child(3),
+.cycleDetailTable th:nth-child(4),
+.cycleDetailTable th:nth-child(5),
+.cycleDetailTable td:nth-child(3),
+.cycleDetailTable td:nth-child(4),
+.cycleDetailTable td:nth-child(5) {
+  text-align: left;
+}
+
+.clickableTableRow {
+  cursor: pointer;
+}
+
+.clickableTableRow:hover td {
+  background: #f8fafc;
+}
+
+.orderStatusBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 58px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: #f1f5f9;
+  color: #344054;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.statusBadgeDone {
+  border-color: #a7f3d0;
+  background: #ecfdf3;
+  color: #067647;
+}
+
+.statusBadgeHolding {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #175cd3;
+}
+
+.statusBadgePending {
+  border-color: #fedf89;
+  background: #fffaeb;
+  color: #b54708;
+}
+
+.statusBadgeSell {
+  border-color: #c7d2fe;
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.statusBadgePartial {
+  border-color: #bae6fd;
+  background: #f0f9ff;
+  color: #026aa2;
+}
+
+.statusBadgeBad {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b42318;
+}
+
+.statusBadgeMuted {
+  border-color: #d0d5dd;
+  background: #f8fafc;
+  color: #475467;
+}
+
+.statusBadgeWarn {
+  border-color: #f5d0fe;
+  background: #fdf4ff;
+  color: #86198f;
+}
+
+.statusBadgeIdle {
+  border-color: #d9e0e8;
+  background: #ffffff;
+  color: #344054;
+}
+
+.orderLegCell {
+  display: grid;
+  gap: 2px;
+  min-width: 128px;
+}
+
+.orderLegCell strong {
+  color: #111827;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.orderLegCell span {
+  color: #667085;
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .assetTable td:first-child {
@@ -783,6 +968,97 @@ dd {
   gap: 8px;
 }
 
+.decisionLogList {
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.orderList {
+  max-height: 340px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.cycleHistoryScroller {
+  max-height: 420px;
+}
+
+.cycleMobileList {
+  display: none;
+}
+
+.cycleMobileCard {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  border: 1px solid #d9e0e8;
+  border-radius: 8px;
+  background: #ffffff;
+  color: inherit;
+  padding: 12px;
+  text-align: left;
+}
+
+.cycleMobileCard + .cycleMobileCard {
+  margin-top: 8px;
+}
+
+.cycleMobileCardHeader,
+.cycleMobileCardFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cycleMobileCardHeader > span:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.cycleMobileCardHeader strong {
+  color: #111827;
+  font-size: 14px;
+}
+
+.cycleMobileCard em,
+.cycleMobileCardFooter {
+  color: #667085;
+  font-size: 11px;
+  font-style: normal;
+}
+
+.cycleMobileCardGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.cycleMobileCardGrid > span {
+  min-width: 0;
+  border: 1px solid #edf1f5;
+  border-radius: 6px;
+  background: #f8fafc;
+  padding: 8px;
+}
+
+.cycleMobileCardGrid strong {
+  display: block;
+  margin-top: 3px;
+  overflow-wrap: anywhere;
+  color: #111827;
+  font-size: 12px;
+}
+
+.cycleMobileCardGrid strong.goodText {
+  color: #b42318;
+}
+
+.cycleMobileCardGrid strong.badText {
+  color: #2563eb;
+}
+
 .miniListRow {
   display: flex;
   justify-content: space-between;
@@ -795,6 +1071,7 @@ dd {
 .miniListRow div {
   display: grid;
   gap: 2px;
+  min-width: 0;
 }
 
 .miniListRow div:last-child {
@@ -804,6 +1081,123 @@ dd {
 .miniListRow span {
   color: #667085;
   font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.miniListStatus {
+  color: #667085;
+  padding: 8px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.tableLoadMoreButton {
+  width: 100%;
+  min-height: 38px;
+  margin-top: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #344054;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.tableActionButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 30px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #344054;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.tableActionButton:disabled {
+  cursor: not-allowed;
+  color: #98a2b3;
+}
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.42);
+  padding: 20px;
+}
+
+.modalPanel {
+  width: min(1120px, 100%);
+  max-height: min(760px, calc(100vh - 40px));
+  overflow: hidden;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.28);
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid #edf1f5;
+  padding: 16px;
+}
+
+.modalHeader h2 {
+  margin-bottom: 4px;
+}
+
+.modalCloseButton {
+  flex: 0 0 40px;
+  width: 40px;
+}
+
+.modalTableScroller {
+  max-height: calc(100vh - 180px);
+}
+
+.cycleDetailBody {
+  display: grid;
+  gap: 14px;
+  max-height: calc(100vh - 116px);
+  overflow: auto;
+  padding: 16px;
+}
+
+.cycleSummaryTable {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.wideSummaryCell {
+  grid-column: 1 / -1;
+}
+
+.cycleDetailGrid {
+  display: grid;
+  gap: 14px;
+}
+
+.cycleLegDetail {
+  min-width: 0;
+  border: 1px solid #edf1f5;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.cycleLegDetail h3 {
+  margin: 0;
+  color: #111827;
+  font-size: 14px;
 }
 
 .dashboardJson {
@@ -813,11 +1207,16 @@ dd {
 @media (max-width: 980px) {
   .topBar,
   .workbench,
+  .tradingLayout,
   .testLayout,
   .privateApiLayout,
   .dashboardGrid,
   .settingsLayout {
     display: block;
+  }
+
+  .tradingMain {
+    grid-template-columns: 1fr;
   }
 
   .summaryStrip {
@@ -840,33 +1239,238 @@ dd {
   .dashboardPanel + .dashboardPanel {
     margin-top: 16px;
   }
+
+  .tradingMain .dashboardPanel + .dashboardPanel {
+    margin-top: 0;
+  }
 }
 
 @media (max-width: 620px) {
+  body {
+    background: #eef2f6;
+  }
+
   .appShell {
-    padding: 14px;
+    min-height: calc(100vh - 96px);
+    padding: 12px;
   }
 
   .appNav {
     display: grid;
-    gap: 10px;
-    padding: 12px 14px;
+    gap: 8px;
+    min-height: 0;
+    padding: 10px 12px;
+  }
+
+  .appBrandCluster {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+
+  .appBrand {
+    grid-template-columns: auto 1fr;
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .serverDeployTime {
+    padding-left: 10px;
+  }
+
+  .appBrand strong {
+    font-size: 14px;
+  }
+
+  .appBrand span {
+    font-size: 11px;
   }
 
   .navTabs {
-    display: grid;
-    grid-template-columns: 1fr;
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+    scrollbar-width: none;
+  }
+
+  .navTabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .navTabs button {
+    flex: 0 0 auto;
+    height: 36px;
+    padding: 0 10px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .topBar {
+    margin-bottom: 12px;
+  }
+
+  h1 {
+    font-size: 21px;
+  }
+
+  .topBar p {
+    font-size: 12px;
+  }
+
+  .metric {
+    padding: 8px 9px;
+  }
+
+  .metric span {
+    font-size: 11px;
+  }
+
+  .metric strong {
+    font-size: 14px;
   }
 
   .buttonStack.horizontal,
   .fieldGrid,
   .readOnlySettings,
-  .summaryTable,
-  .summaryStrip {
+  .summaryTable {
     grid-template-columns: 1fr;
+  }
+
+  .summaryStrip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .summaryStrip.compact {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .controlPanel,
+  .dashboardPanel,
+  .settingsPanel,
+  .apiResultBlock,
+  .resultsPanel {
+    padding: 12px;
+  }
+
+  .sectionHeader {
+    align-items: flex-start;
+  }
+
+  .dataNote {
+    justify-content: flex-start;
+  }
+
+  .slotPreview {
+    max-height: 300px;
+    margin-bottom: 12px;
+  }
+
+  .buttonRow {
+    gap: 6px;
+  }
+
+  .primaryButton,
+  .ghostButton,
+  .secondaryButton,
+  .dangerButton {
+    min-height: 44px;
+  }
+
+  .miniListRow {
+    display: grid;
+    gap: 8px;
+  }
+
+  .miniListRow div:last-child {
+    text-align: left;
+  }
+
+  .assetTable {
+    min-width: 760px;
+  }
+
+  .tradingSlotTable {
+    min-width: 920px;
+  }
+
+  .cycleHistoryTable {
+    display: none;
+  }
+
+  .cycleHistoryScroller {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .cycleMobileList {
+    display: grid;
+    gap: 8px;
+  }
+
+  .cycleDetailTable {
+    min-width: 920px;
+  }
+
+  .modalBackdrop {
+    align-items: stretch;
+    padding: 8px;
+  }
+
+  .modalPanel {
+    width: 100%;
+    max-height: calc(100dvh - 16px);
+  }
+
+  .modalHeader {
+    padding: 12px;
+  }
+
+  .modalHeader h2 {
+    font-size: 17px;
+  }
+
+  .cycleDetailBody {
+    max-height: calc(100dvh - 86px);
+    padding: 12px;
+  }
+
+  .cycleSummaryTable {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cycleLegDetail {
+    padding: 10px;
+  }
+
+  .tradingChartPanel .chartSurface {
+    min-height: 320px;
   }
 
   .chartPanel {
     padding: 8px;
+  }
+
+  .chartSurface {
+    min-height: 320px;
+  }
+}
+
+@media (max-width: 380px) {
+  .appShell {
+    padding: 10px;
+  }
+
+  .summaryStrip.compact {
+    grid-template-columns: 1fr;
+  }
+
+  .summaryStrip {
+    grid-template-columns: 1fr;
+  }
+
+  .cycleSummaryTable,
+  .cycleMobileCardGrid {
+    grid-template-columns: 1fr;
   }
 }

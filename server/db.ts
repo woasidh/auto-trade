@@ -174,6 +174,13 @@ const migrations: Migration[] = [
         strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
       );
     `
+  },
+  {
+    id: "003_add_runner_observed_price",
+    sql: `
+      ALTER TABLE runner_state ADD COLUMN last_observed_price REAL;
+      ALTER TABLE runner_state ADD COLUMN last_observed_price_at TEXT;
+    `
   }
 ];
 

@@ -14,6 +14,7 @@ import type { Candle, SimulationResult, TradeEvent } from "../shared/types";
 interface PriceChartProps {
   candles: Candle[];
   result?: SimulationResult | null;
+  events?: TradeEvent[];
 }
 
 const tradeMarkerStyles = {
@@ -31,7 +32,7 @@ const tradeMarkerStyles = {
   }
 } as const;
 
-export default function PriceChart({ candles, result }: PriceChartProps) {
+export default function PriceChart({ candles, events, result }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -116,8 +117,8 @@ export default function PriceChart({ candles, result }: PriceChartProps) {
       return;
     }
 
-    seriesRef.current.setMarkers(result ? toMarkers(result.events) : []);
-  }, [result]);
+    seriesRef.current.setMarkers(toMarkers(result?.events ?? events ?? []));
+  }, [events, result]);
 
   return <div ref={containerRef} className="chartSurface" />;
 }
