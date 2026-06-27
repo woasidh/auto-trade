@@ -578,6 +578,7 @@ Authorization: Bearer {JWT}
 - LIVE 게이트가 꺼져 있으면 `executeDecision`은 빗썸 private API를 호출하지 않고 차단한다.
 - 수동 주문 테스트 엔드포인트도 `BITHUMB_LIVE_TRADING=true`, `BITHUMB_ORDER_SUBMISSION_ENABLED=true`, 요청 본문의 `confirmLive=true`를 모두 요구한다. 하나라도 빠지면 dry-run 응답만 반환한다.
 - 브로커는 주문 요청 전후의 슬롯/주문/체결 저장과 decision log 기록 책임을 함께 가진다.
+- 러너의 주기 tick에서 주문 동기화나 보충 결과가 없으면 decision log를 추가하지 않고 `runner_state`의 heartbeat와 마지막 tick 시각만 갱신한다.
 
 ## 내부 데이터 매핑
 

@@ -844,7 +844,7 @@ export default function TradingPage() {
             </div>
           </article>
 
-          <article className="dashboardPanel">
+          <article className="dashboardPanel wide">
             <div className="sectionHeader">
               <h2>판단 로그</h2>
             </div>

@@ -96,6 +96,7 @@ SQLite DB는 이후 운영 설정과 자동매매 상태 저장 용도로 사용
 - 현재 기본 등록 브로커는 `PaperBroker`뿐입니다. PAPER 모드는 실제 빗썸 주문 API를 호출하지 않는 로컬 stage 모드로 동작하며, 슬롯별 지정가 주문을 미리 유지하고 mock 주문 상태를 동기화합니다.
 - PAPER 주문은 빗썸 주문 응답과 비슷한 `order_id`, `client_order_id`, `state`, `executed_volume`, `executed_funds`, `paid_fee` 스냅샷을 `rawRequest`/`rawResponse`에 저장합니다.
 - PAPER 매수 주문은 현재가 이하의 매수 슬롯에 선주문으로 접수되고, 지정가가 체결 가능해지면 `FILLED`로 동기화됩니다. 체결 직후 목표 매도 지정가 주문을 보충합니다.
+- 러너의 무변화 tick은 판단 로그를 쌓지 않고 `runner_state`의 heartbeat와 마지막 tick 시각만 갱신합니다. 판단 로그는 주문, 체결, 오류, 복구, 의미 있는 보류 사유 같은 감사 이벤트 중심으로 남깁니다.
 - `BithumbLiveBroker`는 주문 전 검증과 `/v2/orders` 요청 생성까지만 준비되어 있고, 실제 주문 POST와 주문 동기화는 아직 구현하지 않았습니다.
 - LIVE 게이트가 꺼져 있으면 `BithumbLiveBroker.executeDecision`은 빗썸 private API를 호출하지 않고 차단합니다.
 - 기존 수동 주문 테스트 엔드포인트도 `BITHUMB_LIVE_TRADING=true`, `BITHUMB_ORDER_SUBMISSION_ENABLED=true`, 요청 본문의 `confirmLive=true`가 모두 맞아야만 POST 주문을 보냅니다.

@@ -6,7 +6,6 @@ import {
   clearTradingPersistence,
   getRunnerState,
   getTradingPersistenceSnapshot,
-  listSlots,
   listStrategies,
   saveSlot,
   saveStrategy,
@@ -210,22 +209,7 @@ export class TradingRunner {
         heartbeatAt: observedAt
       });
 
-      const results = await broker.syncOpenOrders(this.db, strategy, currentPrice);
-      if (results.length === 0) {
-        const slots = listSlots(this.db, strategy.id);
-        appendDecisionLog(this.db, {
-          strategyId: strategy.id,
-          market: strategy.market,
-          currentPrice,
-          action: "HOLD",
-          reason: "no broker order sync or replenishment was needed",
-          snapshot: {
-            emptySlots: slots.filter((slot) => slot.status === "EMPTY").length,
-            holdingSlots: slots.filter((slot) => slot.status === "HOLDING").length,
-            pendingSlots: slots.filter((slot) => slot.status === "BUY_PENDING" || slot.status === "SELL_PENDING").length
-          }
-        });
-      }
+      await broker.syncOpenOrders(this.db, strategy, currentPrice);
 
       updateRunnerState(this.db, {
         status: "RUNNING",

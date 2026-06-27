@@ -48,12 +48,15 @@ describe("TradingRunner", () => {
     expect(started.orders[0].rawResponse).toMatchObject({ mode: "PAPER_STAGE", state: "wait" });
     expect(started.fills).toHaveLength(0);
 
+    const logCountBeforeRestingTick = started.decisionLogs.length;
     price = 107.5;
     vi.setSystemTime(new Date("2026-06-01T00:00:05.000Z"));
     const resting = await runner.tick();
 
     expect(resting.orders.filter((order) => order.side === "BUY" && order.status === "ACCEPTED")).toHaveLength(7);
     expect(resting.fills).toHaveLength(0);
+    expect(resting.decisionLogs).toHaveLength(logCountBeforeRestingTick);
+    expect(resting.decisionLogs.some((log) => log.reason === "no broker order sync or replenishment was needed")).toBe(false);
 
     price = 104;
     vi.setSystemTime(new Date("2026-06-01T00:00:10.000Z"));
