@@ -31,13 +31,13 @@ npm run dev
 실행 후 브라우저에서 엽니다.
 
 ```text
-http://localhost:5173
+http://localhost:10001
 ```
 
 개발 서버는 두 개가 함께 실행됩니다.
 
-- UI: `http://localhost:5173`
-- 로컬 API: `http://localhost:5174`
+- UI: `http://localhost:10001`
+- 로컬 API: `http://localhost:30001`
 
 ## 사용 방법
 
@@ -93,7 +93,9 @@ SQLite DB는 이후 운영 설정과 자동매매 상태 저장 용도로 사용
 - 전략 판단은 `strategyEngine`에서 수행하고, 주문 실행은 `TradingBroker` 인터페이스 뒤로 분리합니다.
 - 빗썸 HTTP/JWT 인증은 `BithumbClient`로 분리되어 API 라우트와 브로커가 같은 구현을 사용합니다.
 - `TradingRunner`는 전략 모드에 맞는 브로커만 호출합니다.
-- 현재 기본 등록 브로커는 `PaperBroker`뿐이며, 기존 paper 실행 흐름을 유지합니다.
+- 현재 기본 등록 브로커는 `PaperBroker`뿐입니다. PAPER 모드는 실제 빗썸 주문 API를 호출하지 않는 로컬 stage 모드로 동작하며, 슬롯별 지정가 주문을 미리 유지하고 mock 주문 상태를 동기화합니다.
+- PAPER 주문은 빗썸 주문 응답과 비슷한 `order_id`, `client_order_id`, `state`, `executed_volume`, `executed_funds`, `paid_fee` 스냅샷을 `rawRequest`/`rawResponse`에 저장합니다.
+- PAPER 매수 주문은 현재가 이하의 매수 슬롯에 선주문으로 접수되고, 지정가가 체결 가능해지면 `FILLED`로 동기화됩니다. 체결 직후 목표 매도 지정가 주문을 보충합니다.
 - `BithumbLiveBroker`는 주문 전 검증과 `/v2/orders` 요청 생성까지만 준비되어 있고, 실제 주문 POST와 주문 동기화는 아직 구현하지 않았습니다.
 - LIVE 게이트가 꺼져 있으면 `BithumbLiveBroker.executeDecision`은 빗썸 private API를 호출하지 않고 차단합니다.
 - 기존 수동 주문 테스트 엔드포인트도 `BITHUMB_LIVE_TRADING=true`, `BITHUMB_ORDER_SUBMISSION_ENABLED=true`, 요청 본문의 `confirmLive=true`가 모두 맞아야만 POST 주문을 보냅니다.
@@ -134,14 +136,14 @@ npm run build
 로컬 API 서버가 파일 데이터를 읽어 UI에 제공합니다.
 
 ```http
-GET http://localhost:5174/api/datasets
-GET http://localhost:5174/api/candles?market=KRW-USDT&interval=1m&from=2026-05-10&to=2026-05-10
-GET http://localhost:5174/api/settings
-PUT http://localhost:5174/api/settings
-GET http://localhost:5174/api/bithumb/markets?isDetails=true
-GET http://localhost:5174/api/bithumb/ticker?markets=KRW-BTC
-GET http://localhost:5174/api/bithumb/orderbook?markets=KRW-BTC
-GET http://localhost:5174/api/bithumb/candles/minutes?unit=1&market=KRW-BTC&count=20
+GET http://localhost:30001/api/datasets
+GET http://localhost:30001/api/candles?market=KRW-USDT&interval=1m&from=2026-05-10&to=2026-05-10
+GET http://localhost:30001/api/settings
+PUT http://localhost:30001/api/settings
+GET http://localhost:30001/api/bithumb/markets?isDetails=true
+GET http://localhost:30001/api/bithumb/ticker?markets=KRW-BTC
+GET http://localhost:30001/api/bithumb/orderbook?markets=KRW-BTC
+GET http://localhost:30001/api/bithumb/candles/minutes?unit=1&market=KRW-BTC&count=20
 ```
 
 ## 시뮬레이션 규칙

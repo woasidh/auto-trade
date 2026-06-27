@@ -569,7 +569,9 @@ Authorization: Bearer {JWT}
 
 자동매매 러너는 전략 판단 결과를 거래소 API에 직접 전달하지 않는다. 주문 실행은 `TradingBroker` 인터페이스 뒤에서 처리한다.
 
-- `PaperBroker`: 현재 기본 실행 브로커. paper 주문 접수, 지연 체결, 취소, 내부 상태 동기화를 담당한다.
+- `PaperBroker`: 현재 기본 실행 브로커. 실제 빗썸 주문 API를 호출하지 않는 PAPER stage 모드로 동작한다. 슬롯별 지정가 주문을 로컬 mock exchange에 접수하고, 주문 조회 응답과 비슷한 `order_id`, `client_order_id`, `state`, `executed_volume`, `executed_funds`, `paid_fee` 스냅샷을 저장한다.
+- PAPER stage 주문은 선주문/체결동기화형으로 관리한다. 현재가 이하의 `EMPTY` 슬롯에는 매수 지정가를 유지하고, 매수 체결 후 `HOLDING` 슬롯에는 목표 매도 지정가를 유지한다.
+- PAPER stage는 지정가가 체결 가능해질 때 주문을 `FILLED`로 동기화하고, 단일 현재가가 지정가 반대편으로 이동했다는 이유만으로 접수 주문을 자동 취소하지 않는다. 취소는 명시적 취소, 전략 중단, 밴드 재설정, 리스크 정책에서 처리한다.
 - `BithumbClient`: Public/Private HTTP 호출, JWT 생성, query hash 생성을 담당한다. API 라우트와 LIVE 브로커가 같은 클라이언트를 사용한다.
 - `BithumbLiveBroker`: 빗썸 실거래 연동용 브로커. 현재는 주문 전 검증과 `/v2/orders` 요청 생성까지만 수행하며, 실주문 생성, 주문 동기화, 취소, 계좌 대조 구현 전까지 기본 러너에 등록하지 않는다.
 - LIVE 전략은 브로커 등록, 환경 변수 게이트, 주문 전 검증, kill switch가 모두 준비된 뒤에만 실행 대상으로 연다.

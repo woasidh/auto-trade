@@ -18,11 +18,11 @@ afterEach(() => {
 });
 
 describe("TradingRunner", () => {
-  it("creates a PAPER strategy with slots and fills paper buys after the delay", async () => {
+  it("keeps PAPER buy limits resting and syncs fills when price reaches them", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-01T00:00:00.000Z"));
     const db = createTestDatabase();
-    let price = 103;
+    let price = 108;
     const runner = new TradingRunner(db, async () => price, 60_000);
 
     const created = runner.createPaperStrategy({
@@ -42,24 +42,30 @@ describe("TradingRunner", () => {
     const started = await runner.start("strategy-1");
 
     expect(started.runnerState).toMatchObject({ status: "RUNNING", autoTradingEnabled: true });
-    expect(started.slots.filter((slot) => slot.status === "BUY_PENDING")).toHaveLength(1);
-    expect(started.orders.filter((order) => order.side === "BUY" && order.status === "ACCEPTED")).toHaveLength(1);
+    expect(started.slots.filter((slot) => slot.status === "BUY_PENDING")).toHaveLength(7);
+    expect(started.orders.filter((order) => order.side === "BUY" && order.status === "ACCEPTED")).toHaveLength(7);
+    expect(started.orders[0].rawRequest).toMatchObject({ mode: "PAPER_STAGE", endpoint: "/v2/orders" });
+    expect(started.orders[0].rawResponse).toMatchObject({ mode: "PAPER_STAGE", state: "wait" });
     expect(started.fills).toHaveLength(0);
 
-    vi.setSystemTime(new Date("2026-06-01T00:00:04.999Z"));
-    const early = await runner.tick();
-
-    expect(early.slots.filter((slot) => slot.status === "BUY_PENDING")).toHaveLength(1);
-    expect(early.fills).toHaveLength(0);
-
-    price = 103;
+    price = 107.5;
     vi.setSystemTime(new Date("2026-06-01T00:00:05.000Z"));
+    const resting = await runner.tick();
+
+    expect(resting.orders.filter((order) => order.side === "BUY" && order.status === "ACCEPTED")).toHaveLength(7);
+    expect(resting.fills).toHaveLength(0);
+
+    price = 104;
+    vi.setSystemTime(new Date("2026-06-01T00:00:10.000Z"));
     const filled = await runner.tick();
 
-    expect(filled.slots.filter((slot) => slot.status === "HOLDING")).toHaveLength(1);
-    expect(filled.orders.filter((order) => order.side === "BUY" && order.status === "FILLED")).toHaveLength(1);
-    expect(filled.fills).toHaveLength(1);
-    expect(filled.slots.find((slot) => slot.slotNumber === 5)?.entryPrice).toBe(103);
+    expect(filled.slots.filter((slot) => slot.status === "SELL_PENDING")).toHaveLength(4);
+    expect(filled.slots.filter((slot) => slot.status === "BUY_PENDING")).toHaveLength(3);
+    expect(filled.orders.filter((order) => order.side === "BUY" && order.status === "FILLED")).toHaveLength(4);
+    expect(filled.orders.filter((order) => order.side === "SELL" && order.status === "ACCEPTED")).toHaveLength(4);
+    expect(filled.fills).toHaveLength(4);
+    expect(filled.slots.find((slot) => slot.slotNumber === 4)?.entryPrice).toBe(104);
+    expect(filled.orders.find((order) => order.side === "BUY" && order.status === "FILLED")?.rawResponse).toMatchObject({ state: "done" });
 
     runner.pause();
   });
@@ -87,7 +93,46 @@ describe("TradingRunner", () => {
     expect(created.slots.map((slot) => slot.targetSellPrice)).toEqual([1483, 1480, 1477, 1474, 1471, 1468, 1465, 1463]);
   });
 
-  it("routes order sync and execution through the configured broker", async () => {
+  it("fills PAPER sells and replenishes the next buy limit", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-01T00:00:00.000Z"));
+    const db = createTestDatabase();
+    let price = 101;
+    const runner = new TradingRunner(db, async () => price, 60_000);
+
+    runner.createPaperStrategy({
+      id: "strategy-1",
+      market: "KRW-BTC",
+      upperPrice: 100,
+      lowerPrice: 99,
+      slotCount: 2,
+      totalBudget: 200_000,
+      targetProfitRate: 0.01,
+      feeRate: 0.0004
+    });
+    await runner.start("strategy-1");
+
+    price = 100;
+    vi.setSystemTime(new Date("2026-06-01T00:00:05.000Z"));
+    const bought = await runner.tick();
+
+    expect(bought.slots.find((slot) => slot.slotNumber === 1)).toMatchObject({ status: "SELL_PENDING", entryPrice: 100 });
+    expect(bought.orders.filter((order) => order.side === "SELL" && order.status === "ACCEPTED")).toHaveLength(1);
+
+    price = 101;
+    vi.setSystemTime(new Date("2026-06-01T00:00:10.000Z"));
+    const sold = await runner.tick();
+
+    expect(sold.orders.filter((order) => order.side === "SELL" && order.status === "FILLED")).toHaveLength(1);
+    expect(sold.orders.find((order) => order.side === "SELL" && order.status === "FILLED")?.rawResponse).toMatchObject({ state: "done" });
+    expect(sold.slots.find((slot) => slot.slotNumber === 1)).toMatchObject({ status: "BUY_PENDING", quantity: 0 });
+    expect(sold.orders.filter((order) => order.side === "BUY" && order.status === "ACCEPTED")).toHaveLength(2);
+    expect(sold.fills).toHaveLength(2);
+
+    runner.pause();
+  });
+
+  it("routes order synchronization through the configured broker", async () => {
     const db = createTestDatabase();
     const calls = {
       syncOpenOrders: 0,
@@ -135,7 +180,7 @@ describe("TradingRunner", () => {
     runner.pause();
   });
 
-  it("recovers and resumes without using a stale observed price from before restart", async () => {
+  it("recovers by replenishing resting orders without retroactive fills", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-06-01T00:00:00.000Z"));
     const db = createTestDatabase();
@@ -150,23 +195,15 @@ describe("TradingRunner", () => {
       targetProfitRate: 0.01
     });
     await firstRunner.start("strategy-1");
-    vi.setSystemTime(new Date("2026-06-01T00:00:05.000Z"));
-    await firstRunner.tick();
     const secondRunner = new TradingRunner(db, async () => 106.5, 60_000);
 
     const recovered = await secondRunner.recover();
 
     expect(recovered.runnerState).toMatchObject({ status: "RUNNING", autoTradingEnabled: true });
-    expect(recovered.orders.filter((order) => order.side === "SELL" && order.status === "ACCEPTED")).toHaveLength(1);
-    expect(recovered.orders.filter((order) => order.side === "BUY" && order.status === "ACCEPTED")).toHaveLength(0);
-    expect(recovered.slots.filter((slot) => slot.status === "SELL_PENDING")).toHaveLength(1);
-
-    vi.setSystemTime(new Date("2026-06-01T00:00:10.000Z"));
-    const sold = await secondRunner.tick();
-
-    expect(sold.orders.filter((order) => order.side === "SELL" && order.status === "FILLED")).toHaveLength(1);
-    expect(sold.slots.filter((slot) => slot.status === "EMPTY")).toHaveLength(7);
-    expect(sold.fills).toHaveLength(2);
+    expect(recovered.slots.find((slot) => slot.slotNumber === 1)).toMatchObject({ status: "EMPTY" });
+    expect(recovered.slots.filter((slot) => slot.status === "BUY_PENDING")).toHaveLength(6);
+    expect(recovered.orders.filter((order) => order.side === "BUY" && order.status === "FILLED")).toHaveLength(0);
+    expect(recovered.fills).toHaveLength(0);
 
     secondRunner.pause();
   });

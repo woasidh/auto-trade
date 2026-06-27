@@ -1,19 +1,18 @@
 import type { SqliteDatabase } from "./db";
 import { PaperBroker } from "./paperBroker";
-import { createStrategySlots, defaultMaxBuyPriceGap, evaluateSevenSplit } from "./strategyEngine";
+import { createStrategySlots } from "./strategyEngine";
 import {
   appendDecisionLog,
   clearTradingPersistence,
   getRunnerState,
   getTradingPersistenceSnapshot,
-  listOrders,
   listSlots,
   listStrategies,
   saveSlot,
   saveStrategy,
   updateRunnerState
 } from "./tradingRepository";
-import type { SaveStrategyInput, Strategy, TradingOrder, TradingPersistenceSnapshot } from "./tradingRepository";
+import type { SaveStrategyInput, Strategy, TradingPersistenceSnapshot } from "./tradingRepository";
 import type { BrokerRegistry, TradingBroker } from "./tradingBroker";
 
 type PriceFetcher = (market: string) => Promise<number>;
@@ -200,7 +199,9 @@ export class TradingRunner {
       const broker = this.resolveBroker(strategy);
 
       const currentPrice = await this.fetchPrice(strategy.market);
-      const previousPrice = state.lastObservedPrice ?? currentPrice;
+      if (!Number.isFinite(currentPrice) || currentPrice <= 0) {
+        throw new Error("Current price must be greater than 0");
+      }
       const observedAt = new Date().toISOString();
       updateRunnerState(this.db, {
         lastMarketPollAt: observedAt,
@@ -209,46 +210,21 @@ export class TradingRunner {
         heartbeatAt: observedAt
       });
 
-      await broker.syncOpenOrders(this.db, strategy, currentPrice);
-      const slots = listSlots(this.db, strategy.id);
-      const buyGap = Math.abs(currentPrice - previousPrice);
-      if (buyGap > defaultMaxBuyPriceGap) {
+      const results = await broker.syncOpenOrders(this.db, strategy, currentPrice);
+      if (results.length === 0) {
+        const slots = listSlots(this.db, strategy.id);
         appendDecisionLog(this.db, {
           strategyId: strategy.id,
           market: strategy.market,
           currentPrice,
           action: "HOLD",
-          reason: `buy evaluation skipped because price moved ${buyGap} from ${previousPrice} to ${currentPrice}`,
-          snapshot: {
-            previousPrice,
-            currentPrice,
-            maxBuyPriceGap: defaultMaxBuyPriceGap
-          }
-        });
-      }
-
-      const decisions = evaluateSevenSplit(strategy, slots, currentPrice, {
-        previousPrice,
-        maxBuyPriceGap: defaultMaxBuyPriceGap,
-        retryBuySlotIds: getRetryBuySlotIds(listOrders(this.db, strategy.id))
-      });
-      if (decisions.length === 0) {
-        appendDecisionLog(this.db, {
-          strategyId: strategy.id,
-          market: strategy.market,
-          currentPrice,
-          action: "HOLD",
-          reason: "no slot condition matched",
+          reason: "no broker order sync or replenishment was needed",
           snapshot: {
             emptySlots: slots.filter((slot) => slot.status === "EMPTY").length,
             holdingSlots: slots.filter((slot) => slot.status === "HOLDING").length,
             pendingSlots: slots.filter((slot) => slot.status === "BUY_PENDING" || slot.status === "SELL_PENDING").length
           }
         });
-      }
-
-      for (const decision of decisions) {
-        await broker.executeDecision(this.db, strategy, decision, currentPrice);
       }
 
       updateRunnerState(this.db, {
@@ -332,27 +308,6 @@ export class TradingRunner {
 
     return broker;
   }
-}
-
-function getRetryBuySlotIds(orders: TradingOrder[]): ReadonlySet<string> {
-  const latestBuyOrderBySlot = new Map<string, TradingOrder>();
-  for (const order of orders) {
-    if (order.side !== "BUY" || latestBuyOrderBySlot.has(order.slotId)) {
-      continue;
-    }
-
-    latestBuyOrderBySlot.set(order.slotId, order);
-  }
-
-  const retryStatuses = new Set<TradingOrder["status"]>(["CANCELED", "REJECTED", "FAILED"]);
-  const retrySlotIds = new Set<string>();
-  for (const [slotId, order] of latestBuyOrderBySlot) {
-    if (retryStatuses.has(order.status)) {
-      retrySlotIds.add(slotId);
-    }
-  }
-
-  return retrySlotIds;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

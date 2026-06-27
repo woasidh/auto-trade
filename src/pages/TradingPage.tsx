@@ -518,7 +518,7 @@ export default function TradingPage() {
   }
 
   const runner = snapshot?.runnerState;
-  const holdingSlots = activeSlots.filter((slot) => slot.status === "HOLDING").length;
+  const holdingSlots = activeSlots.filter(isPositionSlot).length;
   const pendingSlots = activeSlots.filter((slot) => slot.status === "BUY_PENDING" || slot.status === "SELL_PENDING").length;
 
   function handleDecisionLogScroll(event: UIEvent<HTMLDivElement>) {
@@ -735,7 +735,7 @@ export default function TradingPage() {
                         <td>{slot.quantity ? decimal(slot.quantity) : "-"}</td>
                         <td>{completedCycleCount.toLocaleString("ko-KR")}</td>
                         <td className={profitClass(profit.realizedProfit)}>{money(profit.realizedProfit)}</td>
-                        <td className={slot.status === "HOLDING" ? profitClass(profit.unrealizedProfit) : "mutedValue"}>{slot.status === "HOLDING" ? money(profit.unrealizedProfit) : "-"}</td>
+                        <td className={isPositionSlot(slot) ? profitClass(profit.unrealizedProfit) : "mutedValue"}>{isPositionSlot(slot) ? money(profit.unrealizedProfit) : "-"}</td>
                         <td className={profitClass(profit.totalProfit)}>{money(profit.totalProfit)}</td>
                         <td>
                           <button className="tableActionButton" disabled={!latestCycle} onClick={() => latestCycle && setSelectedCycleId(latestCycle.id)} type="button">
@@ -1309,7 +1309,7 @@ function statusBadgeLabel(status: string) {
     EMPTY: "대기",
     HOLDING: "보유",
     BUY_PENDING: "매수 접수",
-    SELL_PENDING: "매도 접수",
+    SELL_PENDING: "매도 대기",
     PAUSED: "일시정지"
   };
 
@@ -1565,7 +1565,7 @@ function calculateSlotProfits(slots: TradingSlot[], orders: TradingOrder[], fill
       continue;
     }
 
-    if (slot.status === "HOLDING" && slot.quantity > 0 && currentPrice) {
+    if (isPositionSlot(slot) && slot.quantity > 0 && currentPrice) {
       const sellEstimate = slot.quantity * currentPrice * (1 - feeRate);
       const buyCost = slot.entryGrossAmount + slot.entryFee;
       profit.unrealizedProfit = sellEstimate - buyCost;
@@ -1575,6 +1575,10 @@ function calculateSlotProfits(slots: TradingSlot[], orders: TradingOrder[], fill
   }
 
   return profitBySlotId;
+}
+
+function isPositionSlot(slot: TradingSlot) {
+  return slot.status === "HOLDING" || slot.status === "SELL_PENDING";
 }
 
 function countCompletedCyclesBySlotNumber(cycles: CycleHistoryRow[]) {

@@ -1,6 +1,7 @@
 import {
   ColorType,
   CrosshairMode,
+  TickMarkType,
   createChart,
   type IChartApi,
   type ISeriesApi,
@@ -9,6 +10,7 @@ import {
   type UTCTimestamp
 } from "lightweight-charts";
 import { useEffect, useRef } from "react";
+import { formatKstIso } from "../shared/candles";
 import type { Candle, SimulationResult, TradeEvent } from "../shared/types";
 
 interface PriceChartProps {
@@ -49,6 +51,9 @@ export default function PriceChart({ candles, events, result }: PriceChartProps)
         textColor: "#253042",
         fontFamily: "Inter, system-ui, sans-serif"
       },
+      localization: {
+        timeFormatter: formatChartKstDateTime
+      },
       grid: {
         vertLines: { color: "#eef1f5" },
         horzLines: { color: "#eef1f5" }
@@ -64,7 +69,8 @@ export default function PriceChart({ candles, events, result }: PriceChartProps)
         fixLeftEdge: true,
         fixRightEdge: true,
         timeVisible: true,
-        secondsVisible: false
+        secondsVisible: false,
+        tickMarkFormatter: formatChartKstTick
       }
     });
 
@@ -73,7 +79,12 @@ export default function PriceChart({ candles, events, result }: PriceChartProps)
       downColor: "#c2410c",
       borderVisible: false,
       wickUpColor: "#15803d",
-      wickDownColor: "#c2410c"
+      wickDownColor: "#c2410c",
+      priceFormat: {
+        type: "price",
+        precision: 0,
+        minMove: 1
+      }
     });
 
     chartRef.current = chart;
@@ -135,6 +146,48 @@ function toMarkers(events: TradeEvent[]): SeriesMarker<Time>[] {
       text: `[${style.label}] S${event.slotNumber} @ ${formatPrice(event.price)}`
     };
   });
+}
+
+function formatChartKstTick(time: Time, tickMarkType: TickMarkType) {
+  const kstIso = timeToKstIso(time);
+  if (!kstIso) {
+    return null;
+  }
+
+  const date = kstIso.slice(0, 10);
+  const timeOfDay = kstIso.slice(11, 19);
+
+  switch (tickMarkType) {
+    case TickMarkType.Year:
+      return date.slice(0, 4);
+    case TickMarkType.Month:
+      return date.slice(0, 7);
+    case TickMarkType.DayOfMonth:
+      return date.slice(5, 10);
+    case TickMarkType.TimeWithSeconds:
+      return timeOfDay;
+    case TickMarkType.Time:
+    default:
+      return timeOfDay.slice(0, 5);
+  }
+}
+
+function formatChartKstDateTime(time: Time) {
+  const kstIso = timeToKstIso(time);
+  return kstIso ? kstIso.slice(0, 16).replace("T", " ") : "";
+}
+
+function timeToKstIso(time: Time) {
+  if (typeof time === "number") {
+    return formatKstIso(time * 1000);
+  }
+
+  if (typeof time === "string") {
+    const parsed = Date.parse(time);
+    return Number.isFinite(parsed) ? formatKstIso(parsed) : null;
+  }
+
+  return formatKstIso(Date.UTC(time.year, time.month - 1, time.day));
 }
 
 function formatPrice(value: number) {
