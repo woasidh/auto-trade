@@ -451,9 +451,95 @@ th {
   font-weight: 700;
 }
 
+.chartShell {
+  position: relative;
+  width: 100%;
+}
+
 .chartSurface {
   width: 100%;
   min-height: 460px;
+}
+
+.chartHoverCard {
+  position: absolute;
+  z-index: 10;
+  width: 292px;
+  max-width: calc(100% - 20px);
+  border: 1px solid rgba(31, 41, 55, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.16);
+  color: #253042;
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.chartHoverHeader,
+.chartHoverMetrics,
+.chartHoverPair,
+.chartHoverRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.chartHoverHeader {
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid #edf1f5;
+}
+
+.chartHoverHeader span,
+.chartHoverMetrics span,
+.chartHoverRow em,
+.chartHoverPair span,
+.chartHoverMore {
+  color: #667085;
+}
+
+.chartHoverMetrics {
+  padding: 9px 12px;
+  border-bottom: 1px solid #edf1f5;
+}
+
+.chartHoverMetrics span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.chartHoverMetrics strong {
+  color: #253042;
+  font-size: 12px;
+}
+
+.chartHoverPair {
+  padding: 8px 12px;
+  border-bottom: 1px solid #edf1f5;
+}
+
+.chartHoverRows {
+  padding: 6px 12px 10px;
+}
+
+.chartHoverRow {
+  min-height: 24px;
+}
+
+.chartHoverRow span {
+  color: #253042;
+  font-weight: 700;
+}
+
+.chartHoverRow strong,
+.chartHoverRow em {
+  font-style: normal;
+}
+
+.chartHoverMore {
+  padding-top: 5px;
+  text-align: right;
 }
 
 .resultsPanel {

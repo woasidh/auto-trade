@@ -14,6 +14,7 @@ import type { DatasetResponse, RawBithumbCandle } from "../src/shared/types";
 import { openDatabase } from "./db";
 import { BithumbClient, bithumbApiBaseUrl } from "./bithumbClient";
 import { getAppSettings, saveAppSettings, seedAppSettingsIfMissing, settingsStorage } from "./settingsRepository";
+import { getCachedBithumbMinuteCandles } from "./marketDataCache";
 import { createStrategyBuyPrices } from "./strategyEngine";
 import { TradingRunner } from "./tradingRunner";
 import { getTradingPersistenceSnapshot, listDecisionLogs } from "./tradingRepository";
@@ -268,19 +269,22 @@ app.get("/api/bithumb/candles/minutes", async (req, res, next) => {
     const market = normalizeMarket(String(req.query.market ?? defaultAppSettings.bithumb.testMarket));
     const count = clampInteger(Number(req.query.count ?? defaultAppSettings.bithumb.candleCount), 1, 200);
     const to = typeof req.query.to === "string" ? req.query.to.trim() : "";
+    const forceRefresh = String(req.query.forceRefresh ?? "false") === "true";
 
     if (!supportedMinuteUnits.includes(unit as (typeof supportedMinuteUnits)[number]) || !market) {
       res.status(400).json({ error: "Invalid candle request" });
       return;
     }
 
-    const params = new URLSearchParams({ market, count: String(count) });
-    if (to) {
-      params.set("to", to);
-    }
-
-    const endpoint = `/v1/candles/minutes/${unit}?${params.toString()}`;
-    const response = await bithumbClient.requestPublic(endpoint);
+    const response = await getCachedBithumbMinuteCandles({
+      dataRoot,
+      client: bithumbClient,
+      market,
+      unit,
+      count,
+      to,
+      forceRefresh
+    });
     res.status(response.status).json(response.body);
   } catch (error) {
     next(error);

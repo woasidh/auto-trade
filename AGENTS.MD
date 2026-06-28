@@ -234,6 +234,9 @@
 - UI 변경 검증이 필요하더라도 기본적으로 빌드, 테스트, 정적 확인을 우선한다.
 - 서버 실행이 꼭 필요하다고 판단되면 먼저 사용자에게 실행 여부를 확인한다.
 - 이 프로젝트의 기본 개발 포트는 프론트엔드 `10001`, 백엔드 `30001`이다. `npm run dev`는 이 포트 조합으로 실행되어야 하며, 다른 프로젝트와 헷갈리지 않도록 `5173`, `5174`를 기본값으로 되돌리지 않는다.
+- 코드 수정 후 사용자가 서버 실행을 요청하면 `npm run dev`를 Codex 실행 세션에 직접 붙잡아 두지 않는다. 작업 세션이 정리되며 서버가 같이 종료되지 않도록 `screen -dmS slice-trade-dev bash -lc 'cd /Users/mwchoi/IdeaProjects/slice-trade && npm run dev > /tmp/slice-trade-dev-server.log 2>&1'`처럼 분리 실행한다.
+- 분리 실행 전에는 기존 `slice-trade-dev` 세션을 정리하고, 실행 후에는 `screen -ls`, `lsof -nP -iTCP:10001 -sTCP:LISTEN`, `lsof -nP -iTCP:30001 -sTCP:LISTEN`, `curl http://localhost:30001/api/health`로 프론트엔드와 백엔드가 살아 있는지 확인한다.
+- 서버 로그는 기본적으로 `/tmp/slice-trade-dev-server.log`에서 확인하고, 종료가 필요하면 `screen -S slice-trade-dev -X quit`을 사용한다.
 
 ## 권장 모듈 경계
 
