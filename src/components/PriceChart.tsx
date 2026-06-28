@@ -1,11 +1,9 @@
 import {
   ColorType,
   CrosshairMode,
-  LineStyle,
   TickMarkType,
   createChart,
   type IChartApi,
-  type LineData,
   type MouseEventParams,
   type ISeriesApi,
   type SeriesMarker,
@@ -65,14 +63,44 @@ interface HoverTradeInfo {
   group: TradeMarkerGroup;
 }
 
+export interface HoverConnectionLineSegment {
+  id: string;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  color: string;
+  dashed: boolean;
+}
+
+interface HoverConnectionPair {
+  id: string;
+  buy: Pick<TradeEvent, "epochSeconds" | "price">;
+  sell: Pick<TradeEvent, "epochSeconds" | "price">;
+  profit: number;
+}
+
+interface HoverConnectionLineContext {
+  chart: {
+    timeScale(): {
+      timeToCoordinate(time: Time): number | null;
+    };
+  };
+  series: {
+    priceToCoordinate(price: number): number | null;
+  };
+  availableTimes: Set<number>;
+}
+
 export default function PriceChart({ candles, events, result }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
-  const connectionSeriesRef = useRef<Array<ISeriesApi<"Line">>>([]);
+  const candleTimesRef = useRef<Set<number>>(new Set());
   const markerGroupsRef = useRef<Map<string, TradeMarkerGroup>>(new Map());
   const hoverGroupIdRef = useRef<string | null>(null);
   const [hoverTrade, setHoverTrade] = useState<HoverTradeInfo | null>(null);
+  const [hoverConnectionLines, setHoverConnectionLines] = useState<HoverConnectionLineSegment[]>([]);
 
   useEffect(() => {
     if (!containerRef.current) {
@@ -121,11 +149,9 @@ export default function PriceChart({ candles, events, result }: PriceChartProps)
         minMove: 1
       }
     });
-    const connectionSeries = createConnectionSeries(chart);
 
     chartRef.current = chart;
     seriesRef.current = series;
-    connectionSeriesRef.current = connectionSeries;
 
     const handleCrosshairMove = (param: MouseEventParams<Time>) => {
       const markerId = typeof param.hoveredObjectId === "string" ? param.hoveredObjectId : "";
@@ -135,7 +161,7 @@ export default function PriceChart({ candles, events, result }: PriceChartProps)
         if (hoverGroupIdRef.current !== null) {
           hoverGroupIdRef.current = null;
           setHoverTrade(null);
-          clearConnectionLines(connectionSeriesRef.current);
+          setHoverConnectionLines([]);
         }
         return;
       }
@@ -146,7 +172,7 @@ export default function PriceChart({ candles, events, result }: PriceChartProps)
       }
 
       hoverGroupIdRef.current = nextHoverId;
-      setConnectionLines(connectionSeriesRef.current, group.pairs);
+      setHoverConnectionLines(createHoverConnectionLineSegments(group.pairs, { chart, series, availableTimes: candleTimesRef.current }));
       setHoverTrade({
         ...positionHoverCard(param.point, containerRef.current),
         group
@@ -168,7 +194,7 @@ export default function PriceChart({ candles, events, result }: PriceChartProps)
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
-      connectionSeriesRef.current = [];
+      candleTimesRef.current = new Set();
       markerGroupsRef.current = new Map();
       hoverGroupIdRef.current = null;
     };
@@ -188,6 +214,7 @@ export default function PriceChart({ candles, events, result }: PriceChartProps)
         close: candle.close
       }))
     );
+    candleTimesRef.current = new Set(candles.map((candle) => candle.epochSeconds));
     chartRef.current.timeScale().fitContent();
   }, [candles]);
 
@@ -197,45 +224,30 @@ export default function PriceChart({ candles, events, result }: PriceChartProps)
     }
 
     const tradeEvents = result?.events ?? events ?? [];
-    const { groups, groupsById } = createTradeMarkerGroups(tradeEvents);
+    const { groups, groupsById } = createTradeMarkerGroups(tradeEvents, candleTimesRef.current);
     markerGroupsRef.current = groupsById;
     seriesRef.current.setMarkers(toMarkers(groups));
-    clearConnectionLines(connectionSeriesRef.current);
     hoverGroupIdRef.current = null;
     setHoverTrade(null);
-  }, [events, result]);
+    setHoverConnectionLines([]);
+  }, [events, result, candles]);
 
   return (
     <div className="chartShell">
       <div ref={containerRef} className="chartSurface" />
+      <HoverConnectionOverlay lines={hoverConnectionLines} />
       {hoverTrade && <TradeHoverCard hover={hoverTrade} />}
     </div>
   );
 }
 
-function createConnectionSeries(chart: IChartApi): Array<ISeriesApi<"Line">> {
-  return Array.from({ length: maxHoverConnectionLines }, () => {
-    const series = chart.addLineSeries({
-      color: "#0f766e",
-      lineStyle: LineStyle.Solid,
-      lineWidth: 2,
-      lastValueVisible: false,
-      priceLineVisible: false,
-      crosshairMarkerVisible: false,
-      pointMarkersVisible: true,
-      pointMarkersRadius: 3
-    });
-    series.setData([]);
-    return series;
-  });
-}
-
-function createTradeMarkerGroups(events: TradeEvent[]): { groups: TradeMarkerGroup[]; groupsById: Map<string, TradeMarkerGroup> } {
+function createTradeMarkerGroups(events: TradeEvent[], availableTimes: Set<number>): { groups: TradeMarkerGroup[]; groupsById: Map<string, TradeMarkerGroup> } {
   const pairsByEventId = createTradePairsByEventId(events);
   const groupsById = new Map<string, TradeMarkerGroup>();
 
   for (const event of events) {
-    const id = `${event.type}:${event.epochSeconds}`;
+    const markerEpochSeconds = resolveChartTimeSeconds(event.epochSeconds, availableTimes);
+    const id = `${event.type}:${markerEpochSeconds}`;
     const current = groupsById.get(id);
     const pair = pairsByEventId.get(event.id);
     if (current) {
@@ -249,7 +261,7 @@ function createTradeMarkerGroups(events: TradeEvent[]): { groups: TradeMarkerGro
     groupsById.set(id, {
       id,
       type: event.type,
-      epochSeconds: event.epochSeconds,
+      epochSeconds: markerEpochSeconds,
       events: [event],
       pairs: pair ? [pair] : []
     });
@@ -318,41 +330,85 @@ function toMarkers(groups: TradeMarkerGroup[]): SeriesMarker<Time>[] {
   });
 }
 
-function setConnectionLines(seriesList: Array<ISeriesApi<"Line">>, pairs: TradePair[]): void {
-  clearConnectionLines(seriesList);
-  const visiblePairs = pairs.slice(0, maxHoverConnectionLines);
-
-  visiblePairs.forEach((pair, index) => {
+export function createHoverConnectionLineSegments(
+  pairs: HoverConnectionPair[],
+  { chart, series, availableTimes }: HoverConnectionLineContext
+): HoverConnectionLineSegment[] {
+  return pairs.slice(0, maxHoverConnectionLines).flatMap((pair) => {
     if (pair.buy.epochSeconds === pair.sell.epochSeconds) {
-      return;
+      return [];
     }
 
-    const series = seriesList[index];
-    series.applyOptions({
-      color: pair.profit >= 0 ? "#0f766e" : "#dc2626",
-      lineStyle: pair.profit >= 0 ? LineStyle.Solid : LineStyle.Dashed
-    });
-    series.setData(toConnectionLineData(pair));
+    const buyTime = resolveChartTimeSeconds(pair.buy.epochSeconds, availableTimes) as UTCTimestamp;
+    const sellTime = resolveChartTimeSeconds(pair.sell.epochSeconds, availableTimes) as UTCTimestamp;
+    const x1 = chart.timeScale().timeToCoordinate(buyTime);
+    const x2 = chart.timeScale().timeToCoordinate(sellTime);
+    const y1 = series.priceToCoordinate(pair.buy.price);
+    const y2 = series.priceToCoordinate(pair.sell.price);
+
+    if (x1 === null || x2 === null || y1 === null || y2 === null) {
+      return [];
+    }
+
+    return [
+      {
+        id: pair.id,
+        x1,
+        y1,
+        x2,
+        y2,
+        color: pair.profit >= 0 ? "#0f766e" : "#dc2626",
+        dashed: pair.profit < 0
+      }
+    ];
   });
 }
 
-function clearConnectionLines(seriesList: Array<ISeriesApi<"Line">>): void {
-  for (const series of seriesList) {
-    series.setData([]);
+function resolveChartTimeSeconds(epochSeconds: number, availableTimes: Set<number>): number {
+  if (availableTimes.size === 0 || availableTimes.has(epochSeconds)) {
+    return epochSeconds;
   }
+
+  const minuteStart = Math.floor(epochSeconds / 60) * 60;
+  if (availableTimes.has(minuteStart)) {
+    return minuteStart;
+  }
+
+  let nearest = epochSeconds;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  for (const availableTime of availableTimes) {
+    const distance = Math.abs(availableTime - epochSeconds);
+    if (distance < nearestDistance) {
+      nearest = availableTime;
+      nearestDistance = distance;
+    }
+  }
+
+  return nearest;
 }
 
-function toConnectionLineData(pair: TradePair): Array<LineData<Time>> {
-  return [
-    {
-      time: pair.buy.epochSeconds as UTCTimestamp,
-      value: pair.buy.price
-    },
-    {
-      time: pair.sell.epochSeconds as UTCTimestamp,
-      value: pair.sell.price
-    }
-  ];
+function HoverConnectionOverlay({ lines }: { lines: HoverConnectionLineSegment[] }) {
+  if (lines.length === 0) {
+    return null;
+  }
+
+  return (
+    <svg className="chartConnectionOverlay" aria-hidden="true">
+      {lines.map((line) => (
+        <line
+          key={line.id}
+          x1={line.x1}
+          y1={line.y1}
+          x2={line.x2}
+          y2={line.y2}
+          stroke={line.color}
+          strokeWidth="2"
+          strokeDasharray={line.dashed ? "5 4" : undefined}
+          strokeLinecap="round"
+        />
+      ))}
+    </svg>
+  );
 }
 
 function positionHoverCard(point: { x: number; y: number }, container: HTMLDivElement | null): { x: number; y: number } {
